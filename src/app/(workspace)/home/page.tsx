@@ -9,6 +9,10 @@ import { projectLocalDailyMutations } from "@/lib/daily/projection";
 import { cacheRecord, listMutations, readCachedRecord, type JsonValue } from "@/lib/offline/outbox";
 import { createClient } from "@/lib/supabase/client";
 import type { DailySnapshot, Routine, RoutineLog, Task } from "@/lib/daily/types";
+import { monthlyFinanceFlow, type FinancePeriodFlow } from "@/lib/finance/ledger";
+import { projectLocalFinanceMutations } from "@/lib/finance/projection";
+import { loadFinanceSnapshot } from "@/lib/finance/repository";
+import { formatMinorUnits } from "@/lib/finance/money";
 
 interface HomeProject { id: string; title: string; }
 interface HomeWorkout { id: string; local_date: string; exercises: Array<{ exercise_id: string; sets: Array<{ weight: number; reps: number }> }>; }
@@ -27,6 +31,7 @@ interface HomeOverview {
   checkins: HomeCheckin[];
   exercises: HomeExercise[];
   programDays: HomeProgramDay[];
+  financeFlow: FinancePeriodFlow[];
 }
 
 export default function HomePage() {
@@ -44,7 +49,7 @@ export default function HomePage() {
     setError("");
     const supabase = createClient();
     try {
-      const [routineResult, routineLogResult, projectPreviewResult, workoutResult, mealResult, checkinResult, exerciseResult, programDayResult, dayResult] = await Promise.all([
+      const [routineResult, routineLogResult, projectPreviewResult, workoutResult, mealResult, checkinResult, exerciseResult, programDayResult, dayResult, financeResult] = await Promise.all([
         supabase.from("routines").select("*").eq("active", true).order("sort_order"),
         supabase.from("routine_logs").select("*").gte("local_date", shiftLocalDate(today, -59)).lte("local_date", today),
         supabase.from("projects").select("id,title").eq("status", "active").order("sort_order").limit(2),
@@ -54,10 +59,12 @@ export default function HomePage() {
         supabase.from("fitness_exercises").select("id,name,category"),
         supabase.from("strength_program_days").select("weekday,strength_programs!inner(status)").eq("strength_programs.status", "active").not("weekday", "is", null),
         loadDailySnapshot(supabase, database, today),
+        loadFinanceSnapshot(supabase, database),
       ]);
       for (const result of [routineResult, routineLogResult, projectPreviewResult, workoutResult, mealResult, checkinResult, exerciseResult, programDayResult]) if (result.error) throw new Error(result.error.message);
       const queued = await listMutations(database);
       const localDaily = projectLocalDailyMutations(dayResult.snapshot, queued, today);
+      const localFinance = projectLocalFinanceMutations(financeResult.snapshot, queued);
       const nextOverview = {
         tasks: localDaily.tasks.filter(({ status }) => status === "open").slice(0, 3),
         projects: (projectPreviewResult.data ?? []) as HomeProject[],
@@ -68,6 +75,7 @@ export default function HomePage() {
         checkins: (checkinResult.data ?? []) as HomeCheckin[],
         exercises: (exerciseResult.data ?? []) as HomeExercise[],
         programDays: (programDayResult.data ?? []) as HomeProgramDay[],
+        financeFlow: monthlyFinanceFlow(localFinance, `${today.slice(0, 7)}-01`, today),
       };
       await cacheRecord(database, {
         id: `home-overview:${weekDates[0]}`,
@@ -141,7 +149,7 @@ export default function HomePage() {
           <article className="home-dashboard-panel"><div className="home-panel-heading"><h3><span className="home-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11" /></svg></span>Todos</h3><Link href="/tasks">Open <span>→</span></Link></div>{overview?.tasks.length ? <ul className="home-preview-list">{overview.tasks.map((task) => <li key={task.id}><button className="home-open-circle" type="button" aria-label={`Complete ${task.title}`} onClick={() => void completeTask(task)} />{task.title}</li>)}</ul> : <p className="home-empty-copy">No open tasks. Add one in Tasks.</p>}</article>
           <article className="home-dashboard-panel"><div className="home-panel-heading"><h3><span className="home-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M9 8v8m6-8v8" /></svg></span>Projects</h3><Link href="/projects">Open <span>→</span></Link></div>{overview?.projects.length ? <ul className="home-preview-list project-preview">{overview.projects.map((project) => <li key={project.id}>{project.title}</li>)}</ul> : <p className="home-empty-copy">No active projects. Create one from Projects.</p>}</article>
           <article className="home-dashboard-panel"><div className="home-panel-heading"><h3><span className="home-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.8-2L20 12M4 12l2.1 5a7 7 0 0 0 11.8-2" /></svg></span>Today&apos;s habits</h3><Link href="/routines">Open <span>→</span></Link></div><div className="home-habit-progress"><strong>{habits.completedToday}<small> / {habits.scheduledToday} done</small></strong><span>{habits.todayPercent}%</span><div className="home-progress-track"><span style={{ width: `${habits.todayPercent}%` }} /></div></div><div className="home-habit-list">{(overview?.routines ?? []).filter(({ days_of_week }) => days_of_week.includes(todayWeekday)).slice(0, 4).map((routine) => <span key={routine.id}><i aria-hidden="true" />{routine.title}</span>)}{habits.scheduledToday === 0 && <small>No habits scheduled for today</small>}</div></article>
-          <article className="home-dashboard-panel home-finance-panel"><div className="home-panel-heading"><h3><span className="home-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2" /><path d="M3 9h18M16 15h2M7 6V4h10v2" /></svg></span>Finances · {new Intl.DateTimeFormat(undefined, { month: "short" }).format(new Date(`${today}T12:00:00.000Z`))}</h3></div><p className="home-empty-copy">Finance tracking isn&apos;t available in Compass yet.</p><span className="home-finance-placeholder">Add an expense or income when this space is ready.</span></article>
+          <article className="home-dashboard-panel home-finance-panel"><div className="home-panel-heading"><h3><span className="home-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2" /><path d="M3 9h18M16 15h2M7 6V4h10v2" /></svg></span>Finances · {new Intl.DateTimeFormat(undefined, { month: "short" }).format(new Date(`${today}T12:00:00.000Z`))}</h3><Link href="/finances">Open <span>→</span></Link></div>{overview?.financeFlow?.length ? <div className="home-finance-flow">{overview.financeFlow.map((flow) => <div key={flow.currency}><strong>{flow.currency}</strong><span>In <b>{formatMinorUnits(flow.income_minor, flow.currency)}</b></span><span>Out <b>{formatMinorUnits(flow.expense_minor, flow.currency)}</b></span><span>Net <b>{formatMinorUnits(flow.net_minor, flow.currency)}</b></span></div>)}</div> : <p className="home-empty-copy">No income or expenses recorded this month.</p>}</article>
         </div>
       </section>
 

@@ -44,12 +44,12 @@ export interface ProviderResult<T> {
 export interface Quote {
   symbol: string;
   currency: string;
-  priceMinor: number;
+  priceMinor: string;
 }
 
 export interface ExchangeRate {
   quote: string;
-  rate: number;
+  rate: string;
 }
 
 export interface CalendarSummary {

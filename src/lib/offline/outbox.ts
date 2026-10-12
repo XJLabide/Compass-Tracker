@@ -43,7 +43,15 @@ export type WorkspaceEntityType =
   | "meal_template_item"
   | "meal_template_item_archive"
   | "meal_log"
-  | "nutrition_checkin";
+  | "nutrition_checkin"
+  | "finance_account"
+  | "finance_transaction"
+  | "finance_budget"
+  | "finance_recurring_charge"
+  | "finance_position"
+  | "finance_valuation"
+  | "finance_fx_rate"
+  | "finance_conversion";
 
 export type DailyEntityType = WorkspaceEntityType;
 

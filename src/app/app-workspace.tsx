@@ -233,7 +233,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
   const [syncOpen, setSyncOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const { profile, online, syncing, pendingCount, failedCount, conflictCount } = useWorkspace();
-  const activeMore = ["/tasks", "/routines", "/history", "/goals", "/fitness", "/nutrition", "/settings", "/more"].some((path) => pathname.startsWith(path));
+  const activeMore = ["/tasks", "/routines", "/history", "/goals", "/fitness", "/nutrition", "/finances", "/settings", "/more"].some((path) => pathname.startsWith(path));
 
   const statusLabel = !online
     ? "Offline"
@@ -261,6 +261,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
         { label: "Goals", href: "/goals", icon: "/icons/goals.svg" },
         { label: "Fitness", href: "/fitness", icon: "/icons/fitness.svg" },
         { label: "Nutrition", href: "/nutrition", icon: "/icons/nutrition.svg" },
+        { label: "Finances", href: "/finances", icon: "/icons/finance.svg" },
         { label: "Tasks", href: "/tasks", icon: "/icons/tasks.svg" },
         { label: "Routines", href: "/routines", icon: "/icons/routines.svg" },
       ],
@@ -295,6 +296,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
           <Link className={pathname.startsWith("/goals") ? "sidebar-link is-active" : "sidebar-link"} href="/goals"><img width="20" height="20" src="/icons/goals.svg" alt="" />Goals</Link>
           <Link className={pathname.startsWith("/fitness") ? "sidebar-link is-active" : "sidebar-link"} href="/fitness"><img width="20" height="20" src="/icons/fitness.svg" alt="" />Fitness</Link>
           <Link className={pathname.startsWith("/nutrition") ? "sidebar-link is-active" : "sidebar-link"} href="/nutrition"><img width="20" height="20" src="/icons/nutrition.svg" alt="" />Nutrition</Link>
+          <Link className={pathname.startsWith("/finances") ? "sidebar-link is-active" : "sidebar-link"} href="/finances"><img width="20" height="20" src="/icons/finance.svg" alt="" />Finances</Link>
           <Link className={pathname.startsWith("/tasks") ? "sidebar-link is-active" : "sidebar-link"} href="/tasks"><img width="20" height="20" src="/icons/tasks.svg" alt="" />Tasks</Link>
           <Link className={pathname.startsWith("/routines") ? "sidebar-link is-active" : "sidebar-link"} href="/routines"><img width="20" height="20" src="/icons/routines.svg" alt="" />Routines</Link>
           <Link className={activeMore ? "sidebar-link is-active" : "sidebar-link"} href="/more">More</Link>

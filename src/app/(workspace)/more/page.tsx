@@ -7,6 +7,7 @@ const destinations = [
   { title: "Goals", detail: "Qualitative and measurable progress", href: "/goals" },
   { title: "Fitness", detail: "Strength plans, workouts, runs, and sports", href: "/fitness" },
   { title: "Nutrition", detail: "Targets, meal templates, and check-ins", href: "/nutrition" },
+  { title: "Finances", detail: "Accounts, cash flow, budgets, and net worth", href: "/finances" },
   { title: "Tasks", detail: "Small actions, due dates, and your inbox", href: "/tasks" },
   { title: "Routines", detail: "Behaviors on the days you choose", href: "/routines" },
   { title: "History & backfill", detail: "Revisit a day without changing today", href: "/history" },

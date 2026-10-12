@@ -59,6 +59,14 @@ export function createSupabaseMutationTransport(
                       p_expected_revision: mutation.expectedRevision,
                       p_payload: mutation.payload,
                     })
+                  : isFinanceMutation(mutation.entityType)
+                    ? await supabase.rpc("apply_finance_mutation", {
+                        p_mutation_id: mutation.id,
+                        p_entity_type: mutation.entityType,
+                        p_entity_id: mutation.recordId,
+                        p_expected_revision: mutation.expectedRevision,
+                        p_payload: mutation.payload,
+                      })
               : mutation.entityType
                 ? await supabase.rpc("apply_daily_mutation", {
               p_mutation_id: mutation.id,
@@ -131,6 +139,25 @@ function isNutritionMutation(entityType: QueuedMutation["entityType"]): entityTy
     || entityType === "meal_template_item_archive"
     || entityType === "meal_log"
     || entityType === "nutrition_checkin";
+}
+
+function isFinanceMutation(entityType: QueuedMutation["entityType"]): entityType is
+  | "finance_account"
+  | "finance_transaction"
+  | "finance_budget"
+  | "finance_recurring_charge"
+  | "finance_position"
+  | "finance_valuation"
+  | "finance_fx_rate"
+  | "finance_conversion" {
+  return entityType === "finance_account"
+    || entityType === "finance_transaction"
+    || entityType === "finance_budget"
+    || entityType === "finance_recurring_charge"
+    || entityType === "finance_position"
+    || entityType === "finance_valuation"
+    || entityType === "finance_fx_rate"
+    || entityType === "finance_conversion";
 }
 
 async function applyDayEnd(supabase: SupabaseClient, mutation: QueuedMutation) {

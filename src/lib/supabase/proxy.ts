@@ -35,6 +35,7 @@ export async function updateSession(request: NextRequest) {
     "/projects",
     "/goals",
     "/nutrition",
+    "/finances",
     "/fitness",
     "/projects",
     "/goals",
