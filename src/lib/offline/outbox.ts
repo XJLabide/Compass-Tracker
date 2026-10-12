@@ -14,7 +14,7 @@ export type MutationStatus =
   | "synced"
   | "resolved";
 
-export type DailyEntityType =
+export type WorkspaceEntityType =
   | "profile"
   | "daily_plan"
   | "priority"
@@ -22,7 +22,17 @@ export type DailyEntityType =
   | "task"
   | "routine"
   | "routine_log"
-  | "end_day";
+  | "end_day"
+  | "calendar_event"
+  | "project"
+  | "project_stage"
+  | "project_task_link"
+  | "life_area"
+  | "goal"
+  | "goal_update"
+  | "goal_project_link";
+
+export type DailyEntityType = WorkspaceEntityType;
 
 export interface QueuedMutation {
   id: string;

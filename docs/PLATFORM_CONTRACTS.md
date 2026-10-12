@@ -62,12 +62,27 @@ For local Google OAuth, provide `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIEN
 
 ## Provider boundaries
 
-No external provider is selected in Phase 0. Integrations are server-side adapters; credentials never enter browser bundles.
+No external provider was selected in Phase 0. Integrations are adapters; credentials never enter browser bundles.
 
 - Assistant: `propose(request, relevantContext)` returns allowlisted proposals. The app shows a preview and requires explicit user confirmation before writes.
 - Quotes and exchange rates: include value, currency, provider/source, `asOf`, and freshness (`fresh`, `stale`, `unavailable`). Manual values remain usable during failures.
-- Calendar: list only selected calendars and read events only; external calendar data cannot mutate event sources.
+- Calendar: list candidate calendars only to let the user select sources; fetch events only for selected calendars. Imported snapshots are read only and can never mutate event sources.
 - Reminders: schedule only after explicit opt-in; cancellation is supported.
+
+### Google Calendar adapter (Phase 2)
+
+- A separate Google OAuth client is used for calendar linking. Normal Compass sign-in never requests calendar scopes.
+- The user must explicitly connect Google Calendar and select individual calendars. The adapter requests only `https://www.googleapis.com/auth/calendar.readonly` and uses authorization-code + PKCE state validation.
+- Google refresh tokens are AES-GCM encrypted by the app server before they enter the owner-scoped database table. The encryption key and Google client secret are server-only environment values.
+- The server refreshes provider access tokens, lists events only from selected calendars, and writes read-only event snapshots. The app exposes no write path to Google Calendar.
+- Disconnecting Google deletes the stored connection, selected calendar records, and imported event snapshots. Local timed events and task due dates remain separate.
+
+### Planning workspace data boundaries (Phase 2)
+
+- Calendar commitments are timed instants with an explicit timezone. A task's `due_date` is a date-only reminder and does not become a time block.
+- Project boards link to shared task records; moving a task between project stages does not clone the task or change its due date.
+- Goals can be qualitative or measurable. Measurable progress entries record value, unit, measurement time, and user-entered source. Qualitative notes do not receive an invented numeric score or “on track” prediction.
+- Goal-to-project links are optional many-to-many associations; life areas remain editable user-owned records.
 
 ## Phase 0 prototype evidence and known follow-up
 

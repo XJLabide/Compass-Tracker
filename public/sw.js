@@ -7,6 +7,10 @@ const SHELL_ASSETS = [
   "/icons/today-active.svg",
   "/icons/home.svg",
   "/icons/home-active.svg",
+  "/icons/calendar.svg",
+  "/icons/calendar-active.svg",
+  "/icons/projects.svg",
+  "/icons/projects-active.svg",
   "/icons/nutrition.svg",
   "/icons/fitness.svg",
   "/icons/more.svg",
@@ -54,7 +58,7 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  const workspaceRoute = ["/today", "/home", "/tasks", "/routines", "/history", "/settings", "/more"]
+  const workspaceRoute = ["/today", "/home", "/calendar", "/projects", "/goals", "/tasks", "/routines", "/history", "/settings", "/more"]
     .some((route) => url.pathname === route || url.pathname.startsWith(`${route}/`));
   if (request.method !== "GET" || request.mode !== "navigate" || url.origin !== self.location.origin || !workspaceRoute) return;
 

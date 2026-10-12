@@ -31,8 +31,13 @@ export async function updateSession(request: NextRequest) {
     "/history",
     "/settings",
     "/more",
+    "/calendar",
+    "/projects",
+    "/goals",
     "/nutrition",
     "/fitness",
+    "/projects",
+    "/goals",
     "/sync-lab",
   ];
   const isProtected = protectedPrefixes.some((path) =>

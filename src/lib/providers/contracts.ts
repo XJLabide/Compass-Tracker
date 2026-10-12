@@ -24,7 +24,7 @@ export interface ExchangeRateProvider {
 }
 
 export interface CalendarProvider {
-  listSelectedCalendars(): Promise<CalendarSummary[]>;
+  listCalendars(): Promise<CalendarSummary[]>;
   readEvents(calendarIds: string[], from: string, through: string): Promise<CalendarEvent[]>;
 }
 
@@ -55,14 +55,18 @@ export interface ExchangeRate {
 export interface CalendarSummary {
   id: string;
   name: string;
+  timeZone?: string;
 }
 
 export interface CalendarEvent {
   id: string;
   calendarId: string;
   title: string;
+  description: string | null;
   startsAt: string;
   endsAt: string;
+  timeZone: string;
+  sourceUpdatedAt: string | null;
 }
 
 export interface ReminderRequest {

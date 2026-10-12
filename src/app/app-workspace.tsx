@@ -231,7 +231,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [syncOpen, setSyncOpen] = useState(false);
   const { profile, online, syncing, pendingCount, failedCount, conflictCount } = useWorkspace();
-  const activeMore = ["/tasks", "/routines", "/history", "/settings", "/more"].some((path) => pathname.startsWith(path));
+  const activeMore = ["/tasks", "/routines", "/history", "/goals", "/settings", "/more"].some((path) => pathname.startsWith(path));
 
   const statusLabel = !online
     ? "Offline"
@@ -248,8 +248,8 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
   const navigation = [
     { label: "Today", href: "/today", icon: "/icons/today.svg", activeIcon: "/icons/today-active.svg", active: pathname === "/today" },
     { label: "Home", href: "/home", icon: "/icons/home.svg", activeIcon: "/icons/home-active.svg", active: pathname === "/home" },
-    { label: "Nutrition", href: "/nutrition", icon: "/icons/nutrition.svg", disabled: true, active: false },
-    { label: "Fitness", href: "/fitness", icon: "/icons/fitness.svg", disabled: true, active: false },
+    { label: "Calendar", href: "/calendar", icon: "/icons/calendar.svg", activeIcon: "/icons/calendar-active.svg", active: pathname.startsWith("/calendar") },
+    { label: "Projects", href: "/projects", icon: "/icons/projects.svg", activeIcon: "/icons/projects-active.svg", active: pathname.startsWith("/projects") },
     { label: "More", href: "/more", icon: "/icons/more.svg", activeIcon: "/icons/more-active.svg", active: activeMore },
   ];
 
@@ -265,9 +265,12 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
         <nav className="sidebar-nav">
           <Link className={pathname === "/today" ? "sidebar-link is-active" : "sidebar-link"} href="/today"><img width="20" height="20" src={navigation[0].active ? navigation[0].activeIcon : navigation[0].icon} alt="" />Today</Link>
           <Link className={pathname === "/home" ? "sidebar-link is-active" : "sidebar-link"} href="/home"><img width="20" height="20" src={navigation[1].active ? navigation[1].activeIcon : navigation[1].icon} alt="" />Home</Link>
+          <Link className={pathname.startsWith("/calendar") ? "sidebar-link is-active" : "sidebar-link"} href="/calendar"><img width="20" height="20" src={navigation[2].active ? navigation[2].activeIcon : navigation[2].icon} alt="" />Calendar</Link>
         </nav>
         <div className="sidebar-section-label sidebar-section-spaced">YOUR SPACES</div>
         <nav className="sidebar-nav">
+          <Link className={pathname.startsWith("/projects") ? "sidebar-link is-active" : "sidebar-link"} href="/projects"><img width="20" height="20" src={navigation[3].active ? navigation[3].activeIcon : navigation[3].icon} alt="" />Projects</Link>
+          <Link className={pathname.startsWith("/goals") ? "sidebar-link is-active" : "sidebar-link"} href="/goals">Goals</Link>
           <Link className={pathname.startsWith("/tasks") ? "sidebar-link is-active" : "sidebar-link"} href="/tasks">Tasks</Link>
           <Link className={pathname.startsWith("/routines") ? "sidebar-link is-active" : "sidebar-link"} href="/routines">Routines</Link>
           <Link className={activeMore ? "sidebar-link is-active" : "sidebar-link"} href="/more">More</Link>
@@ -294,12 +297,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
       </div>
 
       <nav className="mobile-tab-bar" aria-label="Primary navigation">
-        {navigation.map((item) => item.disabled ? (
-          <span className="mobile-tab is-disabled" aria-disabled="true" title={`${item.label} is coming in a later phase`} key={item.label}>
-            <img src={item.icon} alt="" />
-            <span>{item.label}</span>
-          </span>
-        ) : (
+        {navigation.map((item) => (
           <Link className={item.active ? "mobile-tab is-active" : "mobile-tab"} href={item.href} aria-current={item.active ? "page" : undefined} key={item.label}>
             <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
             <span>{item.label}</span>
@@ -397,8 +395,11 @@ function statusLabel(status: MutationStatus) {
 function summarizeMutation(payload: QueuedMutation["payload"]) {
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
     const value = payload as Record<string, JsonValue>;
-    for (const key of ["title", "reflection", "display_name"]) {
+    for (const key of ["title", "name", "reflection", "display_name", "note"]) {
       if (typeof value[key] === "string" && value[key]) return value[key] as string;
+    }
+    if (typeof value.value === "number") {
+      return `${value.value}${typeof value.unit === "string" && value.unit ? ` ${value.unit}` : ""}`;
     }
     if (typeof value.status === "string") return value.status.replaceAll("_", " ");
   }

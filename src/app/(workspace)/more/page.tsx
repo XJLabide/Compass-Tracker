@@ -2,6 +2,9 @@ import Link from "next/link";
 import { PageHeader } from "@/app/daily-components";
 
 const destinations = [
+  { title: "Calendar", detail: "Timed events beside due work", href: "/calendar" },
+  { title: "Projects", detail: "Shared tasks through custom stages", href: "/projects" },
+  { title: "Goals", detail: "Qualitative and measurable progress", href: "/goals" },
   { title: "Tasks", detail: "Small actions, due dates, and your inbox", href: "/tasks" },
   { title: "Routines", detail: "Behaviors on the days you choose", href: "/routines" },
   { title: "History & backfill", detail: "Revisit a day without changing today", href: "/history" },

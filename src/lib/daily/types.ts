@@ -1,4 +1,4 @@
-import type { JsonValue } from "@/lib/offline/outbox";
+import type { JsonValue, WorkspaceEntityType } from "@/lib/offline/outbox";
 import type { PriorityOutcome } from "./rules";
 
 export type Appearance = "system" | "light" | "dark";
@@ -86,7 +86,7 @@ export interface DailySnapshot {
 }
 
 export interface DailyMutationInput {
-  entityType: "profile" | "daily_plan" | "priority" | "priority_task_link" | "task" | "routine" | "routine_log" | "end_day";
+  entityType: WorkspaceEntityType;
   recordId: string;
   expectedRevision: number;
   payload: JsonValue;

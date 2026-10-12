@@ -14,8 +14,31 @@ export function createSupabaseMutationTransport(
     async apply(mutation) {
       const result = mutation.entityType === "end_day"
         ? await applyDayEnd(supabase, mutation)
-        : mutation.entityType
-          ? await supabase.rpc("apply_daily_mutation", {
+        : mutation.entityType === "calendar_event"
+          ? await supabase.rpc("apply_calendar_mutation", {
+              p_mutation_id: mutation.id,
+              p_event_id: mutation.recordId,
+              p_expected_revision: mutation.expectedRevision,
+              p_payload: mutation.payload,
+            })
+          : isProjectMutation(mutation.entityType)
+            ? await supabase.rpc("apply_project_mutation", {
+                p_mutation_id: mutation.id,
+                p_entity_type: mutation.entityType,
+                p_entity_id: mutation.recordId,
+                p_expected_revision: mutation.expectedRevision,
+                p_payload: mutation.payload,
+              })
+            : isGoalMutation(mutation.entityType)
+              ? await supabase.rpc("apply_goal_mutation", {
+                  p_mutation_id: mutation.id,
+                  p_entity_type: mutation.entityType,
+                  p_entity_id: mutation.recordId,
+                  p_expected_revision: mutation.expectedRevision,
+                  p_payload: mutation.payload,
+                })
+              : mutation.entityType
+                ? await supabase.rpc("apply_daily_mutation", {
               p_mutation_id: mutation.id,
               p_entity_type: mutation.entityType,
               p_entity_id: mutation.recordId,
@@ -23,12 +46,12 @@ export function createSupabaseMutationTransport(
               p_operation: mutation.operation ?? "upsert",
               p_payload: mutation.payload,
             })
-          : await supabase.rpc("apply_sync_probe_mutation", {
-              p_mutation_id: mutation.id,
-              p_record_id: mutation.recordId,
-              p_expected_revision: mutation.expectedRevision,
-              p_payload: mutation.payload,
-            });
+                : await supabase.rpc("apply_sync_probe_mutation", {
+                    p_mutation_id: mutation.id,
+                    p_record_id: mutation.recordId,
+                    p_expected_revision: mutation.expectedRevision,
+                    p_payload: mutation.payload,
+                  });
 
       if (result.error) throw new Error(result.error.message);
       const response = result.data as SyncMutationResponse;
@@ -46,6 +69,14 @@ export function createSupabaseMutationTransport(
       );
     },
   };
+}
+
+function isProjectMutation(entityType: QueuedMutation["entityType"]): entityType is "project" | "project_stage" | "project_task_link" {
+  return entityType === "project" || entityType === "project_stage" || entityType === "project_task_link";
+}
+
+function isGoalMutation(entityType: QueuedMutation["entityType"]): entityType is "life_area" | "goal" | "goal_update" | "goal_project_link" {
+  return entityType === "life_area" || entityType === "goal" || entityType === "goal_update" || entityType === "goal_project_link";
 }
 
 async function applyDayEnd(supabase: SupabaseClient, mutation: QueuedMutation) {
