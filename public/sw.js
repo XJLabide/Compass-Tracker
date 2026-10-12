@@ -1,4 +1,4 @@
-const CACHE_NAME = "compass-static-shell-v1";
+const CACHE_NAME = "compass-static-shell-v2";
 const SHELL_ASSETS = [
   "/manifest.webmanifest",
   "/offline.html",
@@ -37,15 +37,18 @@ self.addEventListener("fetch", (event) => {
   );
   if (request.method !== "GET" || !staticAsset) return;
 
-  event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+  event.respondWith((async () => {
+    try {
+      const response = await fetch(request);
       if (response.ok) {
         const copy = response.clone();
         void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
       }
       return response;
-    })),
-  );
+    } catch {
+      return await caches.match(request) ?? Response.error();
+    }
+  })());
 });
 
 self.addEventListener("fetch", (event) => {
