@@ -16,7 +16,10 @@ export function HealthSheet({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
   const titleId = useId();
+
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -31,7 +34,7 @@ export function HealthSheet({
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -49,7 +52,7 @@ export function HealthSheet({
       document.removeEventListener("keydown", handleKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="sheet-backdrop health-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
