@@ -1,4 +1,4 @@
-import type { LoggedStrengthExercise } from "./records";
+import type { LoggedStrengthExercise, LoggedStrengthSet } from "./records";
 
 export type FitnessActivityKind = "run" | "sport";
 export type WorkoutLogStatus = "logged" | "void";
@@ -49,6 +49,7 @@ export interface StrengthSessionOverride {
   title: string | null;
   notes: string | null;
   skipped: boolean;
+  exercises: StrengthProgramExercise[] | null;
   revision: number;
 }
 
@@ -59,11 +60,24 @@ export interface WorkoutLog {
   local_date: string;
   timezone: string;
   title_snapshot: string;
+  started_at: string | null;
   completed_at: string;
   notes: string | null;
   exercises: LoggedStrengthExercise[];
   status: WorkoutLogStatus;
   revision: number;
+}
+
+export interface WorkoutDraft {
+  id: string;
+  program_id: string | null;
+  program_day_id: string | null;
+  local_date: string;
+  timezone: string;
+  title_snapshot: string;
+  started_at: string;
+  notes: string;
+  exercises: Array<Omit<LoggedStrengthExercise, "sets"> & { skipped?: boolean; sets: Array<LoggedStrengthSet & { skipped?: boolean }> }>;
 }
 
 export interface FitnessActivityLog {

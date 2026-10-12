@@ -41,13 +41,15 @@ export function projectLocalFitnessMutations(source: FitnessSnapshot, mutations:
     if (mutation.entityType === "strength_override") {
       view.overrides = upsert(view.overrides, {
         id: mutation.recordId, program_day_id: string(payload.program_day_id, ""), local_date: string(payload.local_date, ""),
-        title: nullableString(payload.title, null), notes: nullableString(payload.notes, null), skipped: bool(payload.skipped, false), revision,
+        title: nullableString(payload.title, null), notes: nullableString(payload.notes, null), skipped: bool(payload.skipped, false),
+        exercises: Array.isArray(payload.exercises) ? payload.exercises as unknown as FitnessSnapshot["programExercises"] : null, revision,
       });
     }
     if (mutation.entityType === "workout_log") {
       view.workouts = upsert(view.workouts, {
         id: mutation.recordId, program_id: nullableString(payload.program_id, null), program_day_id: nullableString(payload.program_day_id, null),
         local_date: string(payload.local_date, ""), timezone: string(payload.timezone, "UTC"), title_snapshot: string(payload.title_snapshot, "Workout"),
+        started_at: nullableString(payload.started_at, null),
         completed_at: string(payload.completed_at, new Date(mutation.createdAt).toISOString()), notes: nullableString(payload.notes, null),
         exercises: Array.isArray(payload.exercises) ? payload.exercises as unknown as WorkoutLog["exercises"] : [],
         status: string(payload.status, "logged") as WorkoutLog["status"], revision,

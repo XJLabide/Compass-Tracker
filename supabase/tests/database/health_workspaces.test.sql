@@ -65,19 +65,27 @@ select is(
   public.apply_fitness_mutation(
     '36000000-0000-4000-8000-000000000005', 'strength_override',
     '46000000-0000-4000-8000-000000000005', 0,
-    '{"program_day_id":"46000000-0000-4000-8000-000000000003","local_date":"2026-10-14","title":"Lower A Deload","notes":"Move gently","skipped":false}'::jsonb
+    '{"program_day_id":"46000000-0000-4000-8000-000000000003","local_date":"2026-10-14","title":"Lower A Deload","notes":"Move gently","skipped":false,"exercises":[{"id":"46000000-0000-4000-8000-000000000004","program_day_id":"46000000-0000-4000-8000-000000000003","exercise_id":"46000000-0000-4000-8000-000000000001","exercise_name":"Back Squat","target_sets":2,"target_reps":8,"target_weight":60,"weight_unit":"kg","sort_order":0}]}'::jsonb
   )->>'status', 'applied', 'users can apply a date-specific strength override'
+);
+select is(
+  (select exercises #>> '{0,target_sets}' from public.strength_session_overrides where id = '46000000-0000-4000-8000-000000000005'),
+  '2', 'date override keeps its own planned exercise and targets'
 );
 select is(
   public.apply_fitness_mutation(
     '36000000-0000-4000-8000-000000000006', 'workout_log',
     '46000000-0000-4000-8000-000000000006', 0,
-    '{"program_id":"46000000-0000-4000-8000-000000000002","program_day_id":"46000000-0000-4000-8000-000000000003","local_date":"2026-10-14","timezone":"Asia/Manila","completed_at":"2026-10-14T10:00:00Z","exercises":[{"exercise_id":"46000000-0000-4000-8000-000000000001","exercise_name":"Back Squat","sets":[{"weight":80,"reps":5,"weight_unit":"kg"},{"weight":90,"reps":3,"weight_unit":"kg"}]}]}'::jsonb
+    '{"program_id":"46000000-0000-4000-8000-000000000002","program_day_id":"46000000-0000-4000-8000-000000000003","local_date":"2026-10-14","timezone":"Asia/Manila","started_at":"2026-10-14T09:00:00Z","completed_at":"2026-10-14T10:00:00Z","exercises":[{"exercise_id":"46000000-0000-4000-8000-000000000001","exercise_name":"Back Squat","sets":[{"weight":80,"reps":5,"weight_unit":"kg"},{"weight":90,"reps":3,"weight_unit":"kg"}]}]}'::jsonb
   )->>'status', 'applied', 'logged workouts store copied exercise set snapshots'
 );
 select is(
   (select title_snapshot from public.workout_logs where id = '46000000-0000-4000-8000-000000000006'),
   'Lower A Deload', 'workout title snapshot is copied from the date override'
+);
+select is(
+  (select started_at::text from public.workout_logs where id = '46000000-0000-4000-8000-000000000006'),
+  '2026-10-14 09:00:00+00', 'logged workouts keep their start time'
 );
 select is(
   public.apply_fitness_mutation(
@@ -128,6 +136,28 @@ select is(
 select is(
   (select estimated_one_rep_max::text from public.fitness_exercise_set_history where workout_id = '46000000-0000-4000-8000-000000000006' and weight = 90 and reps = 3),
   '99.00', 'e1RM history derives from logged workout set values'
+);
+select is(
+  public.apply_fitness_mutation(
+    '36000000-0000-4000-8000-000000000013', 'workout_log',
+    '46000000-0000-4000-8000-000000000006', 1,
+    '{"local_date":"2026-10-15","timezone":"Asia/Manila","title_snapshot":"Corrected Lower A","started_at":"2026-10-15T09:30:00Z","completed_at":"2026-10-15T10:30:00Z","notes":"Corrected note","exercises":[{"exercise_id":"46000000-0000-4000-8000-000000000001","exercise_name":"Back Squat","sets":[{"weight":85,"reps":5,"weight_unit":"kg"}]}],"status":"logged"}'::jsonb
+  )->>'revision', '2', 'completed workout edits advance the revision and accept corrected fields'
+);
+select is(
+  (select exercises #>> '{0,sets,0,weight}' from public.workout_logs where id = '46000000-0000-4000-8000-000000000006'),
+  '85', 'completed workout edits replace the copied set data'
+);
+select is(
+  (select snapshot ->> 'title_snapshot' from public.record_versions where owner_id = '16000000-0000-4000-8000-000000000001' and record_type = 'workout_logs' and record_id = '46000000-0000-4000-8000-000000000006' order by revision desc limit 1),
+  'Lower A Deload', 'workout edits preserve the prior version for recovery'
+);
+select is(
+  public.apply_fitness_mutation(
+    '36000000-0000-4000-8000-000000000014', 'workout_log',
+    '46000000-0000-4000-8000-000000000006', 2,
+    '{"local_date":"2026-10-14","timezone":"Asia/Manila","title_snapshot":"Lower A Deload","started_at":"2026-10-14T09:00:00Z","completed_at":"2026-10-14T10:00:00Z","notes":null,"exercises":[{"exercise_id":"46000000-0000-4000-8000-000000000001","exercise_name":"Back Squat","sets":[{"weight":80,"reps":5,"weight_unit":"kg"},{"weight":90,"reps":3,"weight_unit":"kg"}]}],"status":"logged"}'::jsonb
+  )->>'revision', '3', 'a preserved workout version can be restored through the normal revisioned mutation path'
 );
 
 select is(

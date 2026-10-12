@@ -122,6 +122,25 @@ export async function readCachedRecord(
   return result;
 }
 
+export async function listCachedRecords(
+  database: IDBDatabase,
+  idPrefix: string,
+): Promise<CachedRecord[]> {
+  const transaction = database.transaction(CACHE_STORE_NAME, "readonly");
+  const done = transactionDone(transaction);
+  const request = transaction.objectStore(CACHE_STORE_NAME).getAll() as IDBRequest<CachedRecord[]>;
+  const records = await requestResult(request);
+  await done;
+  return records.filter(({ id }) => id.startsWith(idPrefix));
+}
+
+export async function deleteCachedRecord(database: IDBDatabase, id: string): Promise<void> {
+  const transaction = database.transaction(CACHE_STORE_NAME, "readwrite");
+  const done = transactionDone(transaction);
+  const request = transaction.objectStore(CACHE_STORE_NAME).delete(id);
+  await Promise.all([requestResult(request), done]);
+}
+
 export function deleteOwnerOfflineData(
   ownerId: string,
   storageScope = "default",

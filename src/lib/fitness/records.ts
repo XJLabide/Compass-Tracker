@@ -1,6 +1,7 @@
 export interface LoggedStrengthSet {
   weight: number;
   reps: number;
+  weight_unit: "kg" | "lb";
 }
 
 export interface LoggedStrengthExercise {
@@ -30,6 +31,7 @@ export interface ExerciseHistorySession {
 export interface ExerciseHistory {
   exercise_id: string;
   exercise_name: string;
+  weight_unit: "kg" | "lb";
   sessions: ExerciseHistorySession[];
 }
 
@@ -40,7 +42,7 @@ export function estimateOneRepMax(weight: number, reps: number): number | null {
   return reps === 1 ? weight : roundToHundredth(weight * (1 + reps / 30));
 }
 
-export function buildExerciseHistory(workouts: StrengthWorkoutHistoryInput[]): ExerciseHistory[] {
+export function buildExerciseHistory(workouts: StrengthWorkoutHistoryInput[], displayUnit: "kg" | "lb" = "kg"): ExerciseHistory[] {
   const ordered = [...workouts].sort((left, right) =>
     left.completed_at.localeCompare(right.completed_at) || left.id.localeCompare(right.id),
   );
@@ -54,6 +56,7 @@ export function buildExerciseHistory(workouts: StrengthWorkoutHistoryInput[]): E
       const history = histories.get(exercise.exercise_id) ?? {
         exercise_id: exercise.exercise_id,
         exercise_name: exercise.exercise_name,
+        weight_unit: displayUnit,
         sessions: [],
       };
       history.exercise_name = exercise.exercise_name;
@@ -63,14 +66,15 @@ export function buildExerciseHistory(workouts: StrengthWorkoutHistoryInput[]): E
         dailySession.set(exercise.exercise_id, session);
       }
       for (const set of exercise.sets) {
-        const estimate = estimateOneRepMax(set.weight, set.reps);
+        const weight = roundToHundredth(convertWeight(set.weight, set.weight_unit, displayUnit));
+        const estimate = estimateOneRepMax(weight, set.reps);
         if (estimate === null) continue;
         session.estimated_one_rep_max = Math.max(session.estimated_one_rep_max, estimate);
         const recordKey = `${exercise.exercise_id}:${set.reps}`;
         const previousBest = bestWeightByRep.get(recordKey) ?? 0;
-        if (set.weight > previousBest) {
-          session.records.push({ ...set, estimated_one_rep_max: estimate });
-          bestWeightByRep.set(recordKey, set.weight);
+        if (weight > previousBest) {
+          session.records.push({ weight, reps: set.reps, weight_unit: displayUnit, estimated_one_rep_max: estimate });
+          bestWeightByRep.set(recordKey, weight);
         }
       }
       histories.set(exercise.exercise_id, history);
@@ -82,6 +86,11 @@ export function buildExerciseHistory(workouts: StrengthWorkoutHistoryInput[]): E
   }
 
   return [...histories.values()].sort((left, right) => left.exercise_name.localeCompare(right.exercise_name));
+}
+
+export function convertWeight(weight: number, from: "kg" | "lb", to: "kg" | "lb"): number {
+  if (from === to) return weight;
+  return from === "lb" ? weight * 0.45359237 : weight / 0.45359237;
 }
 
 function roundToHundredth(value: number): number {

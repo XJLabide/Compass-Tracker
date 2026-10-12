@@ -9,7 +9,7 @@ describe("offline fitness projection", () => {
       id: "mutation-1", recordId: "workout-1", entityType: "workout_log", expectedRevision: 0,
       payload: {
         local_date: "2026-10-14", timezone: "Asia/Manila", title_snapshot: "Leg day", completed_at: "2026-10-14T02:00:00Z",
-        exercises: [{ exercise_id: "squat", exercise_name: "Back squat", sets: [{ weight: 80, reps: 3 }] }],
+        exercises: [{ exercise_id: "squat", exercise_name: "Back squat", sets: [{ weight: 80, reps: 3, weight_unit: "kg" }] }],
       },
       createdAt: 1, status: "conflict",
     };
