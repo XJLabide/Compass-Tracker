@@ -6,10 +6,9 @@ import { CaptureButton, CaptureSheet, PageHeader } from "@/app/daily-components"
 import { useWorkspace } from "@/app/app-workspace";
 import { loadDailySnapshot, localToday, shiftLocalDate } from "@/lib/daily/repository";
 import { projectLocalDailyMutations } from "@/lib/daily/projection";
-import { localDateTimeToIso } from "@/lib/daily/timezone";
 import { cacheRecord, listMutations, readCachedRecord, type JsonValue } from "@/lib/offline/outbox";
 import { createClient } from "@/lib/supabase/client";
-import type { DailyPlan, DailySnapshot, Routine, RoutineLog, Task } from "@/lib/daily/types";
+import type { DailySnapshot, Routine, RoutineLog, Task } from "@/lib/daily/types";
 
 interface HomeProject { id: string; title: string; }
 interface HomeWorkout { id: string; local_date: string; exercises: Array<{ exercise_id: string; sets: Array<{ weight: number; reps: number }> }>; }
@@ -19,23 +18,15 @@ interface HomeExercise { id: string; name: string; category: string | null; }
 interface HomeProgramDay { weekday: number | null; }
 
 interface HomeOverview {
-  plans: DailyPlan[];
-  openTasks: number;
-  activeRoutines: number;
   tasks: Task[];
   projects: HomeProject[];
   routines: Routine[];
   routineLogs: RoutineLog[];
-  activeGoals: number;
-  activeProjects: number;
   workouts: HomeWorkout[];
-  activitiesThisWeek: number;
   meals: HomeMeal[];
   checkins: HomeCheckin[];
   exercises: HomeExercise[];
   programDays: HomeProgramDay[];
-  hasNutritionTarget: boolean;
-  eventsThisWeek: number;
 }
 
 export default function HomePage() {
@@ -53,55 +44,30 @@ export default function HomePage() {
     setError("");
     const supabase = createClient();
     try {
-      const weekStartInstant = localDateTimeToIso(weekDates[0], "00:00", profile.timezone);
-      const weekEndInstant = localDateTimeToIso(shiftLocalDate(weekDates[6], 1), "00:00", profile.timezone);
-      const [plansResult, taskResult, routineResult, routineLogResult, goalResult, projectResult, projectPreviewResult, workoutResult, activityResult, mealResult, checkinResult, exerciseResult, programDayResult, targetResult, eventResult, dayResult] = await Promise.all([
-        supabase.from("daily_plans").select("*").gte("local_date", weekDates[0]).lte("local_date", weekDates[6]),
-        supabase.from("tasks").select("id", { count: "exact", head: true }).eq("status", "open"),
+      const [routineResult, routineLogResult, projectPreviewResult, workoutResult, mealResult, checkinResult, exerciseResult, programDayResult, dayResult] = await Promise.all([
         supabase.from("routines").select("*").eq("active", true).order("sort_order"),
         supabase.from("routine_logs").select("*").gte("local_date", shiftLocalDate(today, -59)).lte("local_date", today),
-        supabase.from("goals").select("id", { count: "exact", head: true }).eq("status", "active"),
-        supabase.from("projects").select("id", { count: "exact", head: true }).eq("status", "active"),
         supabase.from("projects").select("id,title").eq("status", "active").order("sort_order").limit(2),
         supabase.from("workout_logs").select("id,local_date,exercises").eq("status", "logged").gte("local_date", shiftLocalDate(today, -83)).lte("local_date", today),
-        supabase.from("fitness_activity_logs").select("id", { count: "exact", head: true }).gte("local_date", weekDates[0]).lte("local_date", weekDates[6]),
         supabase.from("meal_logs").select("local_date,snapshot").gte("local_date", shiftLocalDate(today, -55)).lte("local_date", today).eq("active", true),
         supabase.from("nutrition_checkins").select("local_date,body_weight,sleep_hours").gte("local_date", shiftLocalDate(today, -55)).lte("local_date", today),
         supabase.from("fitness_exercises").select("id,name,category"),
         supabase.from("strength_program_days").select("weekday,strength_programs!inner(status)").eq("strength_programs.status", "active").not("weekday", "is", null),
-        supabase.from("nutrition_targets").select("id", { count: "exact", head: true }).lte("effective_from", today),
-        supabase.from("calendar_events").select("id", { count: "exact", head: true }).eq("status", "active").gte("starts_at", weekStartInstant ?? `${weekDates[0]}T00:00:00.000Z`).lt("starts_at", weekEndInstant ?? `${shiftLocalDate(weekDates[6], 1)}T00:00:00.000Z`),
         loadDailySnapshot(supabase, database, today),
       ]);
-      for (const result of [plansResult, taskResult, routineResult, routineLogResult, goalResult, projectResult, projectPreviewResult, workoutResult, activityResult, mealResult, checkinResult, exerciseResult, programDayResult, targetResult, eventResult]) if (result.error) throw new Error(result.error.message);
+      for (const result of [routineResult, routineLogResult, projectPreviewResult, workoutResult, mealResult, checkinResult, exerciseResult, programDayResult]) if (result.error) throw new Error(result.error.message);
       const queued = await listMutations(database);
       const localDaily = projectLocalDailyMutations(dayResult.snapshot, queued, today);
-      const taskDelta = queued.filter(({ entityType, status }) => entityType === "task" && status !== "synced" && status !== "resolved").reduce((delta, mutation) => {
-        const payload = mutation.payload as { status?: string };
-        const currentTask = dayResult.snapshot.tasks.find(({ id }) => id === mutation.recordId);
-        if (mutation.expectedRevision === 0) return delta + (payload.status === "open" ? 1 : 0);
-        if (currentTask?.status === "open" && payload.status && payload.status !== "open") return delta - 1;
-        if (currentTask && currentTask.status !== "open" && payload.status === "open") return delta + 1;
-        return delta;
-      }, 0);
       const nextOverview = {
-        plans: (plansResult.data ?? []) as DailyPlan[],
-        openTasks: Math.max(0, (taskResult.count ?? 0) + taskDelta),
-        activeRoutines: routineResult.data?.length ?? 0,
         tasks: localDaily.tasks.filter(({ status }) => status === "open").slice(0, 3),
         projects: (projectPreviewResult.data ?? []) as HomeProject[],
         routines: (routineResult.data ?? []) as Routine[],
         routineLogs: (routineLogResult.data ?? []) as RoutineLog[],
-        activeGoals: goalResult.count ?? 0,
-        activeProjects: projectResult.count ?? 0,
         workouts: (workoutResult.data ?? []) as HomeWorkout[],
-        activitiesThisWeek: activityResult.count ?? 0,
         meals: (mealResult.data ?? []) as HomeMeal[],
         checkins: (checkinResult.data ?? []) as HomeCheckin[],
         exercises: (exerciseResult.data ?? []) as HomeExercise[],
         programDays: (programDayResult.data ?? []) as HomeProgramDay[],
-        hasNutritionTarget: (targetResult.count ?? 0) > 0,
-        eventsThisWeek: eventResult.count ?? 0,
       };
       await cacheRecord(database, {
         id: `home-overview:${weekDates[0]}`,
@@ -120,15 +86,13 @@ export default function HomePage() {
       if (todayCache) setTodaySnapshot(todayCache.payload as unknown as DailySnapshot);
       setError(cached ? "Showing saved Home details while offline." : loadError instanceof Error ? loadError.message : "Home could not be loaded.");
     }
-  }, [database, profile.timezone, today, weekDates]);
+  }, [database, today, weekDates]);
 
   useEffect(() => {
     const task = window.setTimeout(() => { void load(); }, 0);
     return () => window.clearTimeout(task);
   }, [load, refreshKey]);
 
-  const plannedToday = overview?.plans.find(({ local_date }) => local_date === today);
-  const todayPriorities = todaySnapshot?.priorities.filter(({ state }) => state === "active").length ?? 0;
   const todayWeekday = ((new Date(`${today}T12:00:00.000Z`).getUTCDay() + 6) % 7) + 1;
   const habits = summarizeHabits(overview?.routines ?? [], overview?.routineLogs ?? [], today);
   const sleepCheckins = (overview?.checkins ?? []).filter(({ local_date, sleep_hours }) => local_date >= shiftLocalDate(today, -13) && sleep_hours !== null);
@@ -161,7 +125,7 @@ export default function HomePage() {
         title: task.title, details: task.details, due_date: task.due_date, status: "done",
         completed_at: new Date().toISOString(), sort_order: task.sort_order,
       } });
-      setOverview((current) => current ? { ...current, openTasks: Math.max(0, current.openTasks - 1), tasks: current.tasks.filter(({ id }) => id !== task.id) } : current);
+      setOverview((current) => current ? { ...current, tasks: current.tasks.filter(({ id }) => id !== task.id) } : current);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "The task could not be updated.");
     }
@@ -201,8 +165,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="surface-card home-all-spaces" aria-labelledby="all-spaces-title"><div className="surface-heading"><h2 id="all-spaces-title">Across your spaces</h2><Link className="text-button" href="/more">See all</Link></div><div className="home-space-grid"><SpaceSummary count={String(todayPriorities).padStart(2, "0")} label="Today" detail={plannedToday ? `${todayPriorities} priorities planned today` : "No plan started yet"} href="/today" /><SpaceSummary count={String(overview?.eventsThisWeek ?? 0).padStart(2, "0")} label="Calendar" detail={`${overview?.eventsThisWeek ?? 0} events this week`} href="/calendar" /><SpaceSummary count={String(overview?.openTasks ?? 0).padStart(2, "0")} label="Tasks" detail={`${overview?.openTasks ?? 0} open`} href="/tasks" gold /><SpaceSummary count={String(overview?.activeRoutines ?? 0).padStart(2, "0")} label="Routines" detail="Scheduled behaviors" href="/routines" /><SpaceSummary count={String(overview?.activeProjects ?? 0).padStart(2, "0")} label="Projects" detail="Active projects" href="/projects" /><SpaceSummary count={String(overview?.activeGoals ?? 0).padStart(2, "0")} label="Goals" detail="Active directions" href="/goals" gold /><SpaceSummary count={String((overview?.workouts ?? []).filter(({ local_date }) => local_date >= weekDates[0] && local_date <= today).length + (overview?.activitiesThisWeek ?? 0)).padStart(2, "0")} label="Fitness" detail="Sessions this week" href="/fitness" /><SpaceSummary count={String(sevenDayMeals.length).padStart(2, "0")} label="Nutrition" detail={`${sevenDayMeals.length} meals this week`} href="/nutrition" gold /></div></section>
-
       {captureOpen && <CaptureSheet plan={todaySnapshot?.plan ?? null} priorities={todaySnapshot?.priorities ?? []} onClose={() => setCaptureOpen(false)} onSaved={() => undefined} />}
     </div>
   );
@@ -225,16 +187,6 @@ function TrendMetric({ label, values, unit }: { label: string; values: number[];
 
 function ConsistencyRing({ value, label }: { value: number; label: string }) {
   return <div className="home-consistency-ring"><span style={{ background: `conic-gradient(var(--accent) ${value}%, var(--panel-raised) 0)` }}><i>{value}%</i></span><small>{label}</small></div>;
-}
-
-function SpaceSummary({ count, label, detail, href, gold = false }: { count: string; label: string; detail: string; href: string; gold?: boolean }) {
-  return (
-    <Link className="space-summary-row" href={href}>
-      <span className={gold ? "summary-count gold" : "summary-count"}>{count}</span>
-      <span className="summary-copy"><strong>{label}</strong><small>{detail}</small></span>
-      <span className="row-chevron" aria-hidden="true">›</span>
-    </Link>
-  );
 }
 
 function summarizeHabits(routines: Routine[], logs: RoutineLog[], today: string) {

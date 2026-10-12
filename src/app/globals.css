@@ -522,9 +522,6 @@ h1 { margin: 15px 0 12px; font-size: clamp(32px, 7vw, 42px); line-height: 1.08; 
 .home-muscle-volume { display: flex; flex-direction: column; gap: 13px; margin-top: 25px; }
 .home-muscle-volume > div { display: grid; grid-template-columns: 84px minmax(0, 1fr) 20px; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; }
 .home-muscle-volume small { color: var(--foreground); text-align: right; }
-.home-all-spaces { display: flex; flex-direction: column; gap: 8px; }
-.home-space-grid { display: grid; grid-template-columns: minmax(0, 1fr); }
-.home-space-grid .space-summary-row { min-height: 55px; }
 .health-toolbar, .health-section-heading, .health-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .health-toolbar { flex-wrap: wrap; padding: 0 2px 3px; }
 .health-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -617,7 +614,7 @@ h1 { margin: 15px 0 12px; font-size: clamp(32px, 7vw, 42px); line-height: 1.08; 
   .sheet-backdrop { align-items: center; }
   .project-board { grid-auto-columns: minmax(240px, 1fr); grid-auto-flow: unset; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); overflow: visible; }
   .goal-measure-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .home-daily-grid, .home-insight-grid, .home-space-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-daily-grid, .home-insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-fitness-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .home-metric:nth-child(even) { border-right: 1px solid var(--line); }
   .home-metric:nth-child(4n) { border-right: 0; }
@@ -630,7 +627,6 @@ h1 { margin: 15px 0 12px; font-size: clamp(32px, 7vw, 42px); line-height: 1.08; 
   .home-fitness-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-activity-heatmap { max-width: 500px; grid-template-rows: repeat(7, 14px); gap: 7px; }
   .home-activity-heatmap span { max-width: 19px; }
-  .home-space-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
 }
 
 @media (min-width: 1000px) {
@@ -647,7 +643,6 @@ h1 { margin: 15px 0 12px; font-size: clamp(32px, 7vw, 42px); line-height: 1.08; 
   .home-preview-list { gap: 17px; }
   .home-preview-list li { font-size: 15px; }
   .home-insight-grid.home-fitness-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .home-space-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
