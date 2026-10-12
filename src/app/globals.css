@@ -142,6 +142,12 @@ h1 { margin: 15px 0 12px; font-size: clamp(32px, 7vw, 42px); line-height: 1.08; 
 .mobile-tab img { width: 20px; height: 20px; object-fit: contain; }
 .mobile-tab.is-active { color: var(--accent); font-weight: 650; }
 .mobile-tab.is-disabled { opacity: .62; }
+.mobile-more-navigation { display: flex; flex-direction: column; gap: 18px; }
+.mobile-more-section > h3 { margin: 0 0 8px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.mobile-more-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mobile-more-link { min-width: 0; min-height: 52px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-raised); color: var(--foreground); padding: 9px; font-size: 12px; font-weight: 600; }
+.mobile-more-link img { width: 20px; height: 20px; flex: 0 0 auto; object-fit: contain; }
+.mobile-more-link.is-active { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--cyan-muted); color: var(--accent); }
 .page-header { min-height: 86px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 7px 2px 12px; }
 .page-heading { min-width: 0; }
 .page-heading h1 { margin: -1px 0 4px; font-size: 32px; line-height: 40px; letter-spacing: -.035em; }

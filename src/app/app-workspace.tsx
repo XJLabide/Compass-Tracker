@@ -11,6 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { HealthSheet } from "@/app/health-sheet";
 import {
   cacheRecord,
   enqueueMutation,
@@ -230,6 +231,7 @@ export function AppWorkspace({ ownerId, children }: { ownerId: string; children:
 function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [syncOpen, setSyncOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { profile, online, syncing, pendingCount, failedCount, conflictCount } = useWorkspace();
   const activeMore = ["/tasks", "/routines", "/history", "/goals", "/fitness", "/nutrition", "/settings", "/more"].some((path) => pathname.startsWith(path));
 
@@ -252,6 +254,26 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
     { label: "Projects", href: "/projects", icon: "/icons/projects.svg", activeIcon: "/icons/projects-active.svg", active: pathname.startsWith("/projects") },
     { label: "More", href: "/more", icon: "/icons/more.svg", activeIcon: "/icons/more-active.svg", active: activeMore },
   ];
+  const moreSections = [
+    {
+      title: "YOUR SPACES",
+      items: [
+        { label: "Goals", href: "/goals", icon: "/icons/goals.svg" },
+        { label: "Fitness", href: "/fitness", icon: "/icons/fitness.svg" },
+        { label: "Nutrition", href: "/nutrition", icon: "/icons/nutrition.svg" },
+        { label: "Tasks", href: "/tasks", icon: "/icons/tasks.svg" },
+        { label: "Routines", href: "/routines", icon: "/icons/routines.svg" },
+      ],
+    },
+    {
+      title: "TOOLS",
+      items: [
+        { label: "History & backfill", href: "/history", icon: "/icons/calendar.svg" },
+        { label: "Settings", href: "/settings", icon: "/icons/settings.svg" },
+        { label: "Offline sync lab", href: "/sync-lab", icon: "/icons/more.svg" },
+      ],
+    },
+  ];
 
   return (
     <div className="app-shell">
@@ -270,11 +292,11 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
         <div className="sidebar-section-label sidebar-section-spaced">YOUR SPACES</div>
         <nav className="sidebar-nav">
           <Link className={pathname.startsWith("/projects") ? "sidebar-link is-active" : "sidebar-link"} href="/projects"><img width="20" height="20" src={navigation[3].active ? navigation[3].activeIcon : navigation[3].icon} alt="" />Projects</Link>
-          <Link className={pathname.startsWith("/goals") ? "sidebar-link is-active" : "sidebar-link"} href="/goals">Goals</Link>
+          <Link className={pathname.startsWith("/goals") ? "sidebar-link is-active" : "sidebar-link"} href="/goals"><img width="20" height="20" src="/icons/goals.svg" alt="" />Goals</Link>
           <Link className={pathname.startsWith("/fitness") ? "sidebar-link is-active" : "sidebar-link"} href="/fitness"><img width="20" height="20" src="/icons/fitness.svg" alt="" />Fitness</Link>
           <Link className={pathname.startsWith("/nutrition") ? "sidebar-link is-active" : "sidebar-link"} href="/nutrition"><img width="20" height="20" src="/icons/nutrition.svg" alt="" />Nutrition</Link>
-          <Link className={pathname.startsWith("/tasks") ? "sidebar-link is-active" : "sidebar-link"} href="/tasks">Tasks</Link>
-          <Link className={pathname.startsWith("/routines") ? "sidebar-link is-active" : "sidebar-link"} href="/routines">Routines</Link>
+          <Link className={pathname.startsWith("/tasks") ? "sidebar-link is-active" : "sidebar-link"} href="/tasks"><img width="20" height="20" src="/icons/tasks.svg" alt="" />Tasks</Link>
+          <Link className={pathname.startsWith("/routines") ? "sidebar-link is-active" : "sidebar-link"} href="/routines"><img width="20" height="20" src="/icons/routines.svg" alt="" />Routines</Link>
           <Link className={activeMore ? "sidebar-link is-active" : "sidebar-link"} href="/more">More</Link>
         </nav>
         <div className="sidebar-bottom">
@@ -300,13 +322,31 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
 
       <nav className="mobile-tab-bar" aria-label="Primary navigation">
         {navigation.map((item) => (
-          <Link className={item.active ? "mobile-tab is-active" : "mobile-tab"} href={item.href} aria-current={item.active ? "page" : undefined} key={item.label}>
-            <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
-            <span>{item.label}</span>
-          </Link>
+          item.label === "More" ? (
+            <button className={item.active || moreOpen ? "mobile-tab is-active" : "mobile-tab"} type="button" aria-haspopup="dialog" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} key={item.label}>
+              <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
+              <span>{item.label}</span>
+            </button>
+          ) : (
+            <Link className={item.active ? "mobile-tab is-active" : "mobile-tab"} href={item.href} aria-current={item.active ? "page" : undefined} key={item.label}>
+              <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
+              <span>{item.label}</span>
+            </Link>
+          )
         ))}
       </nav>
 
+      {moreOpen && <HealthSheet eyebrow="NAVIGATION" title="More places" error="" onClose={() => setMoreOpen(false)}>
+        <nav className="mobile-more-navigation" aria-label="Additional navigation">
+          {moreSections.map((section) => <section className="mobile-more-section" aria-labelledby={`mobile-more-${section.title}`} key={section.title}>
+            <h3 id={`mobile-more-${section.title}`}>{section.title}</h3>
+            <div className="mobile-more-grid">{section.items.map((item) => <Link className={pathname.startsWith(item.href) ? "mobile-more-link is-active" : "mobile-more-link"} href={item.href} onClick={() => setMoreOpen(false)} key={item.href}>
+              <img src={item.icon} alt="" />
+              <span>{item.label}</span>
+            </Link>)}</div>
+          </section>)}
+        </nav>
+      </HealthSheet>}
       {syncOpen && <SyncCenter onClose={() => setSyncOpen(false)} />}
       <span className="sr-only" aria-live="polite">Appearance: {profile.appearance}</span>
     </div>
