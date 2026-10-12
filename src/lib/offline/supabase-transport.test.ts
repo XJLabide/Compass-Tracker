@@ -11,6 +11,9 @@ describe("createSupabaseMutationTransport", () => {
       mutation("calendar_event", { title: "Planning" }),
       mutation("project_task_link", { project_id: "project", task_id: "task", stage_id: "stage" }),
       mutation("goal_update", { goal_id: "goal", value: 2, unit: "books", source: "Manual" }),
+      mutation("workout_log", { local_date: "2026-10-14", exercises: [] }),
+      mutation("meal_log", { local_date: "2026-10-14", snapshot: {} }),
+      mutation("meal_template_item_archive", {}),
     ];
 
     for (const row of entities) await expect(transport.apply(row)).resolves.toEqual({ status: "applied", revision: 2 });
@@ -19,6 +22,9 @@ describe("createSupabaseMutationTransport", () => {
       "apply_calendar_mutation",
       "apply_project_mutation",
       "apply_goal_mutation",
+      "apply_fitness_mutation",
+      "apply_nutrition_mutation",
+      "archive_meal_template_item",
     ]);
   });
 });

@@ -58,7 +58,7 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  const workspaceRoute = ["/today", "/home", "/calendar", "/projects", "/goals", "/tasks", "/routines", "/history", "/settings", "/more"]
+  const workspaceRoute = ["/today", "/home", "/calendar", "/projects", "/goals", "/fitness", "/nutrition", "/tasks", "/routines", "/history", "/settings", "/more"]
     .some((route) => url.pathname === route || url.pathname.startsWith(`${route}/`));
   if (request.method !== "GET" || request.mode !== "navigate" || url.origin !== self.location.origin || !workspaceRoute) return;
 

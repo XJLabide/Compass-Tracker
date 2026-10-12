@@ -84,6 +84,15 @@ No external provider was selected in Phase 0. Integrations are adapters; credent
 - Goals can be qualitative or measurable. Measurable progress entries record value, unit, measurement time, and user-entered source. Qualitative notes do not receive an invented numeric score or “on track” prediction.
 - Goal-to-project links are optional many-to-many associations; life areas remain editable user-owned records.
 
+### Fitness and nutrition data boundaries (Phase 3)
+
+- Strength programs, sessions, and workout records are owner-scoped. Completed workout logs copy the exercise names, load units, and actual set values so later program edits do not rewrite history.
+- Personal records are derived from completed set records. Estimated one-rep max uses the Epley formula for multi-rep sets (`load × (1 + reps / 30)`); a recorded single is its own estimate. The displayed value is an estimate, not a measured one-rep lift.
+- Run and sport sessions are manual entries and do not depend on a wearable or external provider.
+- Meal templates contain user-entered ingredient amounts and nutrition values. Scaling multiplies ingredient amounts and macros by the serving factor.
+- A meal log copies the template name, ingredients, units, amounts, nutrition values, and totals at log time. Editing the source template never changes that historical snapshot.
+- Nutrition check-ins are optional and cannot gate workout or meal logging.
+
 ## Phase 0 prototype evidence and known follow-up
 
 - `supabase/migrations/20261012000000_platform_contracts.sql` demonstrates owner-scoped reads, revision-checked writes, idempotent mutation receipts, stale-write conflicts, pre-edit recovery snapshots, and a private tombstone table.

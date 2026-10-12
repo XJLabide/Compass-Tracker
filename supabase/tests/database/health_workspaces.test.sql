@@ -72,7 +72,7 @@ select is(
   public.apply_fitness_mutation(
     '36000000-0000-4000-8000-000000000006', 'workout_log',
     '46000000-0000-4000-8000-000000000006', 0,
-    '{"program_id":"46000000-0000-4000-8000-000000000002","program_day_id":"46000000-0000-4000-8000-000000000003","local_date":"2026-10-14","timezone":"Asia/Manila","completed_at":"2026-10-14T10:00:00Z","exercises":[{"exercise_id":"46000000-0000-4000-8000-000000000001","exercise_name":"Back Squat","sets":[{"weight":80,"reps":5},{"weight":90,"reps":3}]}]}'::jsonb
+    '{"program_id":"46000000-0000-4000-8000-000000000002","program_day_id":"46000000-0000-4000-8000-000000000003","local_date":"2026-10-14","timezone":"Asia/Manila","completed_at":"2026-10-14T10:00:00Z","exercises":[{"exercise_id":"46000000-0000-4000-8000-000000000001","exercise_name":"Back Squat","sets":[{"weight":80,"reps":5,"weight_unit":"kg"},{"weight":90,"reps":3,"weight_unit":"kg"}]}]}'::jsonb
   )->>'status', 'applied', 'logged workouts store copied exercise set snapshots'
 );
 select is(
@@ -106,6 +106,13 @@ select is(
     '46000000-0000-4000-8000-000000000001', 1,
     '{"name":"Stale Squat"}'::jsonb
   )->>'status', 'conflict', 'stale fitness updates return optimistic conflicts'
+);
+select is(
+  public.apply_fitness_mutation(
+    '36000000-0000-4000-8000-000000000012', 'fitness_exercise',
+    '46000000-0000-4000-8000-000000000001', 0,
+    '{"name":"Duplicate create"}'::jsonb
+  )->'server'->>'revision', '2', 'create conflicts include the current server revision for offline resolution'
 );
 select is(
   (select count(*)::integer from public.record_versions where owner_id = '16000000-0000-4000-8000-000000000001' and record_type = 'fitness_exercises'),
@@ -155,12 +162,16 @@ select is(
   public.apply_nutrition_mutation(
     '37000000-0000-4000-8000-000000000005', 'meal_log',
     '47000000-0000-4000-8000-000000000005', 0,
-    '{"template_id":"47000000-0000-4000-8000-000000000002","servings":1.5,"local_date":"2026-10-14","logged_at":"2026-10-14T04:00:00Z","meal_type":"lunch"}'::jsonb
+    '{"template_id":"47000000-0000-4000-8000-000000000002","servings":1.5,"local_date":"2026-10-14","logged_at":"2026-10-14T04:00:00Z","meal_type":"lunch","snapshot":{"template_name":"Forged snapshot","ingredients":[],"totals":{}}}'::jsonb
   )->>'status', 'applied', 'meal logs can build an immutable scaled snapshot from a template'
 );
 select is(
   (select snapshot #>> '{totals,calories}' from public.meal_logs where id = '47000000-0000-4000-8000-000000000005'),
   '750.00', 'meal log snapshot scales ingredient calories'
+);
+select is(
+  (select snapshot ->> 'template_name' from public.meal_logs where id = '47000000-0000-4000-8000-000000000005'),
+  'Chicken Bowl', 'persisted meal snapshots are built from the server-owned template'
 );
 select is(
   public.apply_nutrition_mutation(
@@ -176,6 +187,21 @@ select is(
 select is(
   (select snapshot #>> '{totals,calories}' from public.meal_logs where id = '47000000-0000-4000-8000-000000000005'),
   '750.00', 'saved meal log keeps original macro totals after source item update'
+);
+select is(
+  public.archive_meal_template_item('37000000-0000-4000-8000-000000000010', '47000000-0000-4000-8000-000000000003', 2)->>'status',
+  'applied', 'users can remove an ingredient from a saved template'
+);
+select is(
+  public.apply_nutrition_mutation(
+    '37000000-0000-4000-8000-000000000011', 'meal_log',
+    '47000000-0000-4000-8000-000000000007', 0,
+    '{"template_id":"47000000-0000-4000-8000-000000000002","servings":1,"local_date":"2026-10-14","meal_type":"lunch"}'::jsonb
+  )->>'status', 'applied', 'new meal snapshots omit ingredients removed from the source template'
+);
+select is(
+  (select snapshot #>> '{ingredients,0,name}' from public.meal_logs where id = '47000000-0000-4000-8000-000000000007'),
+  'Rice', 'new snapshots contain the remaining template ingredients'
 );
 select throws_ok(
   $$ update public.meal_logs

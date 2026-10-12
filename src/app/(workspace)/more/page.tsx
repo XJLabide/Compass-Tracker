@@ -5,6 +5,8 @@ const destinations = [
   { title: "Calendar", detail: "Timed events beside due work", href: "/calendar" },
   { title: "Projects", detail: "Shared tasks through custom stages", href: "/projects" },
   { title: "Goals", detail: "Qualitative and measurable progress", href: "/goals" },
+  { title: "Fitness", detail: "Strength plans, workouts, runs, and sports", href: "/fitness" },
+  { title: "Nutrition", detail: "Targets, meal templates, and check-ins", href: "/nutrition" },
   { title: "Tasks", detail: "Small actions, due dates, and your inbox", href: "/tasks" },
   { title: "Routines", detail: "Behaviors on the days you choose", href: "/routines" },
   { title: "History & backfill", detail: "Revisit a day without changing today", href: "/history" },
@@ -24,7 +26,6 @@ export default function MorePage() {
           </Link>
         ))}
       </section>
-      <p className="more-note">Nutrition and Fitness are part of a later Compass phase.</p>
     </div>
   );
 }

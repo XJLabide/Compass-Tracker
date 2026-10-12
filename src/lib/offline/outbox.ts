@@ -30,7 +30,20 @@ export type WorkspaceEntityType =
   | "life_area"
   | "goal"
   | "goal_update"
-  | "goal_project_link";
+  | "goal_project_link"
+  | "fitness_exercise"
+  | "strength_program"
+  | "strength_program_day"
+  | "strength_program_exercise"
+  | "strength_override"
+  | "workout_log"
+  | "fitness_activity_log"
+  | "nutrition_target"
+  | "meal_template"
+  | "meal_template_item"
+  | "meal_template_item_archive"
+  | "meal_log"
+  | "nutrition_checkin";
 
 export type DailyEntityType = WorkspaceEntityType;
 

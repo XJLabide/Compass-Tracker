@@ -4,6 +4,8 @@ import type { LocalCalendarEvent, ExternalCalendar, ImportedCalendarEvent } from
 import type { Goal, GoalProjectLink, GoalUpdate, LifeArea } from "@/lib/goals/types";
 import type { Project, ProjectStage, ProjectTaskLink } from "@/lib/projects/types";
 import type { Task } from "@/lib/daily/types";
+import type { FitnessSnapshot } from "@/lib/fitness/types";
+import type { MealTemplateItem, NutritionSnapshot } from "@/lib/nutrition/types";
 import { emptyPlanningSnapshot, type PlanningSnapshot } from "./types";
 
 export async function loadPlanningSnapshot(
@@ -61,6 +63,82 @@ export async function loadPlanningSnapshot(
 
 export function planningSnapshotKey(from: string, through: string): string {
   return `planning-snapshot:${from}:${through}`;
+}
+
+export async function loadFitnessSnapshot(
+  client: SupabaseClient,
+  database: IDBDatabase,
+): Promise<{ snapshot: FitnessSnapshot; offline: boolean }> {
+  const cacheId = "health-snapshot:fitness";
+  try {
+    const results = await Promise.all([
+      client.from("fitness_exercises").select("*").order("name"),
+      client.from("strength_programs").select("*").order("created_at", { ascending: false }),
+      client.from("strength_program_days").select("*").order("sort_order"),
+      client.from("strength_program_exercises").select("*").order("sort_order"),
+      client.from("strength_session_overrides").select("*").order("local_date", { ascending: false }),
+      client.from("workout_logs").select("*").eq("status", "logged").order("completed_at", { ascending: false }).limit(2000),
+      client.from("fitness_activity_logs").select("*").order("local_date", { ascending: false }).limit(2000),
+    ]);
+    const error = results.find((result) => result.error)?.error;
+    if (error) throw new Error(error.message);
+    const snapshot: FitnessSnapshot = {
+      exercises: (results[0].data ?? []) as FitnessSnapshot["exercises"],
+      programs: (results[1].data ?? []) as FitnessSnapshot["programs"],
+      programDays: (results[2].data ?? []) as FitnessSnapshot["programDays"],
+      programExercises: (results[3].data ?? []) as FitnessSnapshot["programExercises"],
+      overrides: (results[4].data ?? []) as FitnessSnapshot["overrides"],
+      workouts: (results[5].data ?? []) as FitnessSnapshot["workouts"],
+      activities: (results[6].data ?? []) as FitnessSnapshot["activities"],
+    };
+    await cacheRecord(database, { id: cacheId, revision: 1, payload: snapshot as unknown as JsonValue, cachedAt: Date.now() });
+    return { snapshot, offline: false };
+  } catch (error) {
+    const cached = await readCachedRecord(database, cacheId);
+    if (cached) return { snapshot: cached.payload as unknown as FitnessSnapshot, offline: true };
+    throw error;
+  }
+}
+
+export async function loadNutritionSnapshot(
+  client: SupabaseClient,
+  database: IDBDatabase,
+  localDate: string,
+): Promise<{ snapshot: NutritionSnapshot; offline: boolean }> {
+  const cacheId = `health-snapshot:nutrition:${localDate}`;
+  const firstDay = new Date(`${localDate}T00:00:00.000Z`);
+  firstDay.setUTCDate(firstDay.getUTCDate() - 30);
+  const fromDate = firstDay.toISOString().slice(0, 10);
+  try {
+    const results = await Promise.all([
+      client.from("nutrition_targets").select("*").lte("effective_from", localDate).order("effective_from", { ascending: false }).limit(1),
+      client.from("meal_templates").select("*").eq("active", true).order("name"),
+      client.from("meal_template_items").select("*").eq("is_archived", false).order("sort_order"),
+      client.from("meal_logs").select("*").eq("active", true).gte("local_date", fromDate).lte("local_date", localDate).order("logged_at", { ascending: false }).limit(500),
+      client.from("nutrition_checkins").select("*").gte("local_date", fromDate).lte("local_date", localDate).order("local_date", { ascending: false }),
+    ]);
+    const error = results.find((result) => result.error)?.error;
+    if (error) throw new Error(error.message);
+    const items = (results[2].data ?? []) as MealTemplateItem[];
+    const snapshot: NutritionSnapshot = {
+      target: ((results[0].data ?? [])[0] ?? null) as NutritionSnapshot["target"],
+      templates: ((results[1].data ?? []) as NutritionSnapshot["templates"]).map((template) => ({
+        ...template,
+        ingredients: items.filter((item) => item.template_id === template.id).map((item) => ({
+          id: item.id, name: item.name, quantity: item.quantity, unit: item.unit, calories: item.calories,
+          protein_g: item.protein_g, carbs_g: item.carbs_g, fat_g: item.fat_g, revision: item.revision, sort_order: item.sort_order,
+        })),
+      })),
+      mealLogs: (results[3].data ?? []) as NutritionSnapshot["mealLogs"],
+      checkins: (results[4].data ?? []) as NutritionSnapshot["checkins"],
+    };
+    await cacheRecord(database, { id: cacheId, revision: 1, payload: snapshot as unknown as JsonValue, cachedAt: Date.now() });
+    return { snapshot, offline: false };
+  } catch (error) {
+    const cached = await readCachedRecord(database, cacheId);
+    if (cached) return { snapshot: cached.payload as unknown as NutritionSnapshot, offline: true };
+    throw error;
+  }
 }
 
 export async function loadProjectsSnapshot(

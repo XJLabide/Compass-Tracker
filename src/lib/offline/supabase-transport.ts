@@ -29,7 +29,7 @@ export function createSupabaseMutationTransport(
                 p_expected_revision: mutation.expectedRevision,
                 p_payload: mutation.payload,
               })
-            : isGoalMutation(mutation.entityType)
+              : isGoalMutation(mutation.entityType)
               ? await supabase.rpc("apply_goal_mutation", {
                   p_mutation_id: mutation.id,
                   p_entity_type: mutation.entityType,
@@ -37,6 +37,28 @@ export function createSupabaseMutationTransport(
                   p_expected_revision: mutation.expectedRevision,
                   p_payload: mutation.payload,
                 })
+              : isFitnessMutation(mutation.entityType)
+                ? await supabase.rpc("apply_fitness_mutation", {
+                    p_mutation_id: mutation.id,
+                    p_entity_type: mutation.entityType,
+                    p_entity_id: mutation.recordId,
+                    p_expected_revision: mutation.expectedRevision,
+                    p_payload: mutation.payload,
+                  })
+                : mutation.entityType === "meal_template_item_archive"
+                  ? await supabase.rpc("archive_meal_template_item", {
+                      p_mutation_id: mutation.id,
+                      p_item_id: mutation.recordId,
+                      p_expected_revision: mutation.expectedRevision,
+                    })
+                : isNutritionMutation(mutation.entityType)
+                  ? await supabase.rpc("apply_nutrition_mutation", {
+                      p_mutation_id: mutation.id,
+                      p_entity_type: mutation.entityType,
+                      p_entity_id: mutation.recordId,
+                      p_expected_revision: mutation.expectedRevision,
+                      p_payload: mutation.payload,
+                    })
               : mutation.entityType
                 ? await supabase.rpc("apply_daily_mutation", {
               p_mutation_id: mutation.id,
@@ -77,6 +99,38 @@ function isProjectMutation(entityType: QueuedMutation["entityType"]): entityType
 
 function isGoalMutation(entityType: QueuedMutation["entityType"]): entityType is "life_area" | "goal" | "goal_update" | "goal_project_link" {
   return entityType === "life_area" || entityType === "goal" || entityType === "goal_update" || entityType === "goal_project_link";
+}
+
+function isFitnessMutation(entityType: QueuedMutation["entityType"]): entityType is
+  | "fitness_exercise"
+  | "strength_program"
+  | "strength_program_day"
+  | "strength_program_exercise"
+  | "strength_override"
+  | "workout_log"
+  | "fitness_activity_log" {
+  return entityType === "fitness_exercise"
+    || entityType === "strength_program"
+    || entityType === "strength_program_day"
+    || entityType === "strength_program_exercise"
+    || entityType === "strength_override"
+    || entityType === "workout_log"
+    || entityType === "fitness_activity_log";
+}
+
+function isNutritionMutation(entityType: QueuedMutation["entityType"]): entityType is
+  | "nutrition_target"
+  | "meal_template"
+  | "meal_template_item"
+  | "meal_template_item_archive"
+  | "meal_log"
+  | "nutrition_checkin" {
+  return entityType === "nutrition_target"
+    || entityType === "meal_template"
+    || entityType === "meal_template_item"
+    || entityType === "meal_template_item_archive"
+    || entityType === "meal_log"
+    || entityType === "nutrition_checkin";
 }
 
 async function applyDayEnd(supabase: SupabaseClient, mutation: QueuedMutation) {

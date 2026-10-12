@@ -231,7 +231,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [syncOpen, setSyncOpen] = useState(false);
   const { profile, online, syncing, pendingCount, failedCount, conflictCount } = useWorkspace();
-  const activeMore = ["/tasks", "/routines", "/history", "/goals", "/settings", "/more"].some((path) => pathname.startsWith(path));
+  const activeMore = ["/tasks", "/routines", "/history", "/goals", "/fitness", "/nutrition", "/settings", "/more"].some((path) => pathname.startsWith(path));
 
   const statusLabel = !online
     ? "Offline"
@@ -271,6 +271,8 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
         <nav className="sidebar-nav">
           <Link className={pathname.startsWith("/projects") ? "sidebar-link is-active" : "sidebar-link"} href="/projects"><img width="20" height="20" src={navigation[3].active ? navigation[3].activeIcon : navigation[3].icon} alt="" />Projects</Link>
           <Link className={pathname.startsWith("/goals") ? "sidebar-link is-active" : "sidebar-link"} href="/goals">Goals</Link>
+          <Link className={pathname.startsWith("/fitness") ? "sidebar-link is-active" : "sidebar-link"} href="/fitness"><img width="20" height="20" src="/icons/fitness.svg" alt="" />Fitness</Link>
+          <Link className={pathname.startsWith("/nutrition") ? "sidebar-link is-active" : "sidebar-link"} href="/nutrition"><img width="20" height="20" src="/icons/nutrition.svg" alt="" />Nutrition</Link>
           <Link className={pathname.startsWith("/tasks") ? "sidebar-link is-active" : "sidebar-link"} href="/tasks">Tasks</Link>
           <Link className={pathname.startsWith("/routines") ? "sidebar-link is-active" : "sidebar-link"} href="/routines">Routines</Link>
           <Link className={activeMore ? "sidebar-link is-active" : "sidebar-link"} href="/more">More</Link>
