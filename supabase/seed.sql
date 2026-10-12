@@ -1,0 +1,1 @@
+-- Intentionally empty: Compass starts with a blank user data namespace.
