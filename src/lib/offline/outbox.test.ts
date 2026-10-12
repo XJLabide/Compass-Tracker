@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   cacheRecord,
   clearOfflineData,
+  clearOwnerOfflineData,
   deleteOwnerOfflineData,
   enqueueMutation,
   listMutations,
@@ -133,6 +134,24 @@ describe("offline mutation outbox", () => {
     expect(await readCachedRecord(firstDevice, cached.id)).toBeUndefined();
     expect(await listMutations(secondDevice)).toMatchObject([{ id: "other-device", status: "pending" }]);
     expect(await readCachedRecord(secondDevice, cached.id)).toMatchObject({ payload: { title: "Other device" } });
+  });
+
+  it("clears all stores scoped to an owner when account deletion succeeds", async () => {
+    const ownerId = crypto.randomUUID();
+    const defaultDevice = await openOutboxDatabase(ownerId);
+    const simulatedDevice = await openOutboxDatabase(ownerId, "device-a");
+    databases.push(defaultDevice);
+    databaseNames.push({ ownerId, scope: "default" }, { ownerId, scope: "device-a" });
+    await enqueueMutation(defaultDevice, mutation({ id: "default-mutation" }));
+    await enqueueMutation(simulatedDevice, mutation({ id: "simulated-mutation" }));
+    simulatedDevice.close();
+
+    await clearOwnerOfflineData(ownerId, defaultDevice);
+
+    expect(await listMutations(defaultDevice)).toEqual([]);
+    const reopened = await openOutboxDatabase(ownerId, "device-a");
+    databases.push(reopened);
+    expect(await listMutations(reopened)).toEqual([]);
   });
 
   it("isolates cached data by account and preserves it for offline reads", async () => {

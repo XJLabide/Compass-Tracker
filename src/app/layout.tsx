@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { PwaBootstrap } from "@/app/pwa-bootstrap";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,7 +21,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <PwaBootstrap />
+      </body>
     </html>
   );
 }

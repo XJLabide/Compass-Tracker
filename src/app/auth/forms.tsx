@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { safeLocalPath } from "@/lib/auth/redirect";
 
 type Mode = "sign-in" | "sign-up" | "reset";
 
 export function AuthForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const returnPath = safeLocalPath(searchParams.get("next"));
   const [mode, setMode] = useState<Mode>("sign-in");
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
@@ -27,7 +29,7 @@ export function AuthForm() {
           ? await supabase.auth.signUp({
               email,
               password,
-              options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/today` },
+              options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(returnPath)}` },
             })
           : await supabase.auth.resetPasswordForEmail(email, {
               redirectTo: `${window.location.origin}/auth/callback?next=/account/update-password`,
@@ -40,11 +42,11 @@ export function AuthForm() {
     }
 
     if (mode === "sign-in") {
-      router.replace("/today");
+      router.replace(returnPath);
       router.refresh();
     } else if (mode === "sign-up") {
       if ("session" in result.data && result.data.session) {
-        router.replace("/today");
+        router.replace(returnPath);
         router.refresh();
       } else {
         setMessage("Check the local Supabase email inbox to confirm your account.");
@@ -59,7 +61,7 @@ export function AuthForm() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=/today` },
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(returnPath)}` },
     });
     if (error) {
       setPending(false);

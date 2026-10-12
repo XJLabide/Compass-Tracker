@@ -14,11 +14,23 @@ export type MutationStatus =
   | "synced"
   | "resolved";
 
+export type DailyEntityType =
+  | "profile"
+  | "daily_plan"
+  | "priority"
+  | "priority_task_link"
+  | "task"
+  | "routine"
+  | "routine_log"
+  | "end_day";
+
 export interface QueuedMutation {
   id: string;
   recordId: string;
   expectedRevision: number;
   payload: JsonValue;
+  entityType?: DailyEntityType;
+  operation?: "upsert" | "link" | "unlink";
   createdAt: number;
   status: MutationStatus;
   serverRevision?: number;
@@ -109,6 +121,40 @@ export async function clearOfflineData(database: IDBDatabase): Promise<void> {
   await done;
 }
 
+export async function clearOwnerOfflineData(ownerId: string, activeDatabase?: IDBDatabase): Promise<void> {
+  if (!ownerId.trim()) throw new Error("An owner ID is required for offline storage");
+  if (activeDatabase) await clearOfflineData(activeDatabase);
+
+  if (!indexedDB.databases) {
+    await Promise.all(["default", "device-a", "device-b"].filter((scope) =>
+      scope !== "default" || activeDatabase?.name !== `compass-offline:default:${ownerId}`,
+    ).map((scope) => clearOwnerDatabase(ownerId, scope)));
+    return;
+  }
+
+  const databaseNames = await indexedDB.databases();
+  const ownerPrefix = "compass-offline:";
+  const ownerSuffix = `:${ownerId}`;
+  const otherNames = databaseNames
+    .map(({ name }) => name)
+    .filter((name): name is string => Boolean(name?.startsWith(ownerPrefix) && name.endsWith(ownerSuffix)))
+    .filter((name) => name !== activeDatabase?.name);
+
+  await Promise.all(otherNames.map(async (name) => {
+    const scope = name.slice(ownerPrefix.length, -ownerSuffix.length);
+    await clearOwnerDatabase(ownerId, scope);
+  }));
+}
+
+async function clearOwnerDatabase(ownerId: string, scope: string): Promise<void> {
+  const database = await openOutboxDatabase(ownerId, scope);
+  try {
+    await clearOfflineData(database);
+  } finally {
+    database.close();
+  }
+}
+
 export async function enqueueMutation(
   database: IDBDatabase,
   mutation: QueuedMutation,
@@ -192,6 +238,8 @@ export async function resolveConflict(
     retry = {
       id: replacementMutationId,
       recordId: current.recordId,
+      entityType: current.entityType,
+      operation: current.operation,
       expectedRevision: current.server.revision,
       payload: current.payload,
       createdAt: Date.now(),

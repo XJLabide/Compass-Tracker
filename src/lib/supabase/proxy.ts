@@ -22,6 +22,30 @@ export async function updateSession(request: NextRequest) {
   });
 
   // Verify claims and refresh expiring sessions before route rendering.
-  await supabase.auth.getClaims();
+  const { data } = await supabase.auth.getClaims();
+  const protectedPrefixes = [
+    "/today",
+    "/home",
+    "/tasks",
+    "/routines",
+    "/history",
+    "/settings",
+    "/more",
+    "/nutrition",
+    "/fitness",
+    "/sync-lab",
+  ];
+  const isProtected = protectedPrefixes.some((path) =>
+    request.nextUrl.pathname === path || request.nextUrl.pathname.startsWith(`${path}/`),
+  );
+
+  if (isProtected && typeof data?.claims?.sub !== "string") {
+    const signInUrl = new URL("/sign-in", request.url);
+    signInUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    const redirectResponse = NextResponse.redirect(signInUrl);
+    response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie));
+    return redirectResponse;
+  }
+
   return response;
 }

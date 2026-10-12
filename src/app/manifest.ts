@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Compass",
     short_name: "Compass",
     description: "A personal compass for your day.",
-    start_url: "/",
+    start_url: "/today",
     display: "standalone",
     background_color: "#090b0e",
     theme_color: "#090b0e",
