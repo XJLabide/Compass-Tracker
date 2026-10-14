@@ -46,7 +46,6 @@ export default function CalendarPage() {
 
   const reload = useCallback(async () => {
     if (!database) return;
-    setLoading(true);
     try {
       const loaded = await loadPlanningSnapshot(
         createClient(), database, new Date(bounds.start).toISOString(), new Date(bounds.end).toISOString(),
@@ -56,7 +55,6 @@ export default function CalendarPage() {
       setOffline(loaded.offline);
       setError("");
     } catch (loadError) {
-      setSnapshot(emptyPlanningSnapshot);
       setError(loadError instanceof Error ? loadError.message : "Calendar could not be loaded.");
     } finally {
       setLoading(false);

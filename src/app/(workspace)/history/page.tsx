@@ -16,7 +16,6 @@ export default function HistoryPage() {
 
   const load = useCallback(async () => {
     if (!database) return;
-    setLoading(true);
     try {
       const { data, error: queryError } = await createClient()
         .from("daily_plans")

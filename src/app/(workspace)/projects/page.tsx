@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type DragEvent as ReactDragEvent } from "react";
 import { PageHeader } from "@/app/daily-components";
 import { useWorkspace } from "@/app/app-workspace";
 import { projectBoardColumns } from "@/lib/projects/rules";
@@ -33,10 +33,17 @@ export default function ProjectsPage() {
   const [projectSheetOpen, setProjectSheetOpen] = useState(false);
   const [taskSheetStage, setTaskSheetStage] = useState<ProjectStage | null>(null);
   const [stageSheetProject, setStageSheetProject] = useState<Project | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [draggingLinkId, setDraggingLinkId] = useState<string | null>(null);
+  const [dropStageId, setDropStageId] = useState<string | null>(null);
+  const [dragPreview, setDragPreview] = useState<{ title: string; x: number; y: number } | null>(null);
+  const dragTimerRef = useRef<number | null>(null);
+  const dragLinkRef = useRef<string | null>(null);
+  const dragStartPointRef = useRef<{ x: number; y: number } | null>(null);
+  const dragModeRef = useRef<"touch-pending" | "touch" | "native" | null>(null);
 
   const reload = useCallback(async () => {
     if (!database) return;
-    setLoading(true);
     try {
       const loaded = await loadProjectsSnapshot(createClient(), database);
       const mutations = await listMutations(database);
@@ -64,6 +71,14 @@ export default function ProjectsPage() {
   const columns = selectedProject
     ? projectBoardColumns(selectedProject.id, stages, activeLinks, snapshot.tasks.filter(({ status }) => status !== "archived"))
     : [];
+  const selectedTask = snapshot.tasks.find(({ id }) => id === selectedTaskId) ?? null;
+  const selectedTaskStage = selectedTask
+    ? stages.find(({ id }) => id === activeLinks.find(({ task_id }) => task_id === selectedTask.id)?.stage_id)
+    : null;
+  const dragPreviewStyle = dragPreview && typeof window !== "undefined" ? {
+    left: `${Math.max(12, Math.min(dragPreview.x + 12, window.innerWidth - 284))}px`,
+    top: `${Math.max(12, Math.min(dragPreview.y + 12, window.innerHeight - 68))}px`,
+  } : undefined;
 
   async function createProject(input: { title: string; description: string }) {
     const id = crypto.randomUUID();
@@ -107,15 +122,136 @@ export default function ProjectsPage() {
     }
   }
 
-  async function toggleTask(taskId: string) {
+  async function advanceTaskStage(taskId: string) {
     const task = snapshot.tasks.find(({ id }) => id === taskId);
-    if (!task) return;
-    const status = task.status === "done" ? "open" : "done";
-    await queueMutation({ entityType: "task", recordId: task.id, expectedRevision: task.revision, payload: { status } });
+    const link = activeLinks.find(({ task_id }) => task_id === taskId);
+    if (!task || !link) return;
+
+    const currentStageIndex = columns.findIndex(({ stage }) => stage.id === link.stage_id);
+    if (currentStageIndex < 0) return;
+    const isChecked = task.status === "done" && columns[currentStageIndex].stage.is_complete;
+    const destination = columns[currentStageIndex + (isChecked ? -1 : 1)];
+    if (!destination) return;
+
+    const status = destination.stage.is_complete ? "done" : "open";
+    const taskMutation = status === task.status ? null : await queueMutation({
+      entityType: "task",
+      recordId: task.id,
+      expectedRevision: task.revision,
+      payload: { status },
+    });
+    const linkMutation = await queueMutation({
+      entityType: "project_task_link",
+      recordId: link.id,
+      expectedRevision: link.revision,
+      payload: { stage_id: destination.stage.id },
+    });
+    setSnapshot((current) => projectLocalPlanningMutations(current, [taskMutation, linkMutation].filter((mutation) => mutation !== null)));
   }
 
   async function moveTask(link: ProjectTaskLink, stageId: string) {
-    await queueMutation({ entityType: "project_task_link", recordId: link.id, expectedRevision: link.revision, payload: { stage_id: stageId } });
+    if (link.stage_id === stageId) return;
+    const mutation = await queueMutation({ entityType: "project_task_link", recordId: link.id, expectedRevision: link.revision, payload: { stage_id: stageId } });
+    setSnapshot((current) => projectLocalPlanningMutations(current, [mutation]));
+  }
+
+  function clearDragState() {
+    if (dragTimerRef.current !== null) window.clearTimeout(dragTimerRef.current);
+    dragTimerRef.current = null;
+    dragLinkRef.current = null;
+    dragStartPointRef.current = null;
+    dragModeRef.current = null;
+    setDraggingLinkId(null);
+    setDropStageId(null);
+    setDragPreview(null);
+  }
+
+  function beginTaskDrag(event: ReactDragEvent<HTMLButtonElement>, link: ProjectTaskLink) {
+    if (!event.dataTransfer) return;
+    if (dragTimerRef.current !== null) window.clearTimeout(dragTimerRef.current);
+    dragTimerRef.current = null;
+    dragModeRef.current = "native";
+    dragLinkRef.current = link.id;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/project-task-link", link.id);
+    const card = event.currentTarget.closest<HTMLElement>(".project-task-card");
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      const preview = card.cloneNode(true) as HTMLElement;
+      preview.removeAttribute("id");
+      preview.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
+      preview.setAttribute("aria-hidden", "true");
+      preview.classList.remove("is-dragging");
+      preview.style.position = "fixed";
+      preview.style.top = "-10000px";
+      preview.style.left = "-10000px";
+      preview.style.width = `${rect.width}px`;
+      preview.style.opacity = ".78";
+      preview.style.borderColor = "var(--accent)";
+      document.body.append(preview);
+      event.dataTransfer.setDragImage(preview, Math.min(event.clientX - rect.left, rect.width - 1), Math.min(event.clientY - rect.top, rect.height - 1));
+      window.requestAnimationFrame(() => preview.remove());
+    }
+    setDraggingLinkId(link.id);
+  }
+
+  function beginTouchDrag(event: ReactPointerEvent<HTMLButtonElement>, link: ProjectTaskLink, title: string) {
+    if (event.pointerType !== "touch") return;
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    dragModeRef.current = "touch-pending";
+    dragLinkRef.current = link.id;
+    dragStartPointRef.current = { x: startX, y: startY };
+    dragTimerRef.current = window.setTimeout(() => {
+      if (dragModeRef.current !== "touch-pending") return;
+      dragModeRef.current = "touch";
+      try { target.setPointerCapture(pointerId); } catch { /* The pointer may have been released. */ }
+      setDraggingLinkId(link.id);
+      setDragPreview({ title, x: startX, y: startY });
+    }, 260);
+  }
+
+  function continueTouchDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (dragModeRef.current === "touch-pending" && dragStartPointRef.current) {
+      const distance = Math.hypot(event.clientX - dragStartPointRef.current.x, event.clientY - dragStartPointRef.current.y);
+      if (distance > 8) clearDragState();
+      return;
+    }
+    if (dragModeRef.current !== "touch") return;
+    event.preventDefault();
+    const stage = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-project-stage-id]");
+    setDropStageId(stage?.dataset.projectStageId ?? null);
+    setDragPreview((current) => current ? { ...current, x: event.clientX, y: event.clientY } : current);
+  }
+
+  function finishTouchDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (dragModeRef.current === "native") return;
+    if (dragModeRef.current === "touch") {
+      const stage = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-project-stage-id]");
+      const targetStageId = stage?.dataset.projectStageId;
+      const link = snapshot.projectTaskLinks.find(({ id, active }) => id === dragLinkRef.current && active);
+      if (link && targetStageId && targetStageId !== link.stage_id) void moveTask(link, targetStageId).catch(showError);
+    }
+    clearDragState();
+  }
+
+  function allowTaskDrop(event: ReactDragEvent<HTMLElement>, stage: ProjectStage) {
+    const isTaskDrag = event.dataTransfer.types.includes("text/project-task-link") || dragModeRef.current === "touch";
+    if (!isTaskDrag) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropStageId(stage.id);
+  }
+
+  function dropTask(event: ReactDragEvent<HTMLElement>, stage: ProjectStage) {
+    const linkId = event.dataTransfer.getData("text/project-task-link") || dragLinkRef.current;
+    if (!linkId) return;
+    event.preventDefault();
+    const link = snapshot.projectTaskLinks.find(({ id, active }) => id === linkId && active);
+    if (link && link.stage_id !== stage.id) void moveTask(link, stage.id).catch(showError);
+    clearDragState();
   }
 
   async function removeTask(link: ProjectTaskLink) {
@@ -147,30 +283,66 @@ export default function ProjectsPage() {
           </nav>
           {selectedProject && <section className="surface-card project-board-card" aria-labelledby="project-board-title">
             <div className="project-board-heading">
-              <div><span className="eyebrow">{capitalize(selectedProject.status)} PROJECT</span><h2 id="project-board-title">{selectedProject.title}</h2>{selectedProject.description && <p>{selectedProject.description}</p>}</div>
-              <div className="project-actions">
-                <button className="text-button" type="button" onClick={() => setStageSheetProject(selectedProject)}>Stages</button>
-                {selectedProject.status === "active" ? <button className="text-button" type="button" onClick={() => void updateProject(selectedProject, { status: "completed" }).catch(showError)}>Complete</button> : <button className="text-button" type="button" onClick={() => void updateProject(selectedProject, { status: "active" }).catch(showError)}>Restore</button>}
-                {selectedProject.status !== "archived" && <button className="text-button" type="button" onClick={() => void updateProject(selectedProject, { status: "archived" }).catch(showError)}>Archive</button>}
+              <div className="project-board-copy">
+                <div className="project-board-title-row">
+                  <h2 id="project-board-title">{selectedProject.title}</h2>
+                  <span className={`project-status-dot is-${selectedProject.status}`} role="img" aria-label={capitalize(selectedProject.status)} title={capitalize(selectedProject.status)} />
+                </div>
+                {selectedProject.description && <p className="project-board-description">{selectedProject.description}</p>}
               </div>
+              <ProjectActionsMenu actions={[
+                { label: "Stages", onSelect: () => setStageSheetProject(selectedProject) },
+                { label: selectedProject.status === "active" ? "Complete" : "Restore", onSelect: () => void updateProject(selectedProject, { status: selectedProject.status === "active" ? "completed" : "active" }).catch(showError) },
+                ...(selectedProject.status !== "archived" ? [{ label: "Archive", onSelect: () => void updateProject(selectedProject, { status: "archived" }).catch(showError) }] : []),
+              ]} />
             </div>
             {columns.length === 0 ? <div className="empty-inline"><p>This project has no active stages. Restore a stage to continue.</p><button className="text-button" type="button" onClick={() => setStageSheetProject(selectedProject)}>Manage stages</button></div> : (
               <div className="project-board" aria-label={`${selectedProject.title} board`}>
                 {columns.map(({ stage, tasks }) => (
-                  <section className="project-stage-column" key={stage.id} aria-labelledby={`stage-${stage.id}`}>
+                  <section
+                    className={`project-stage-column${dropStageId === stage.id ? " is-drop-target" : ""}`}
+                    key={stage.id}
+                    data-project-stage-id={stage.id}
+                    aria-labelledby={`stage-${stage.id}`}
+                    onDragOver={(event) => allowTaskDrop(event, stage)}
+                    onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropStageId(null); }}
+                    onDrop={(event) => dropTask(event, stage)}
+                  >
                     <div className="project-stage-heading"><h3 id={`stage-${stage.id}`}>{stage.name}</h3><span>{tasks.length}</span></div>
                     {tasks.map((task) => {
                       const link = activeLinks.find((row) => row.task_id === task.id);
-                      return <article className="project-task-card" key={task.id}>
-                        <label className="project-task-check"><input type="checkbox" checked={task.status === "done"} onChange={() => void toggleTask(task.id).catch(showError)} aria-label={`${task.status === "done" ? "Reopen" : "Complete"} ${task.title}`} /><span>{task.status === "done" ? "✓" : ""}</span></label>
-                        <strong>{task.title}</strong>
+                      const isDragging = Boolean(link && draggingLinkId === link.id);
+                      const stageIndex = columns.findIndex(({ stage: boardStage }) => boardStage.id === stage.id);
+                      const isTaskChecked = stage.is_complete && task.status === "done";
+                      const canAdvance = isTaskChecked ? stageIndex > 0 : stageIndex < columns.length - 1;
+                      return <article className={`project-task-card${isDragging ? " is-dragging" : ""}`} key={task.id} onClick={(event) => {
+                        if (event.target instanceof Element && event.target.closest("button, input, select, label")) return;
+                        setSelectedTaskId(task.id);
+                      }}>
+                        <div className="project-task-heading">
+                          <label className="project-task-check"><input type="checkbox" checked={isTaskChecked} disabled={!link || !canAdvance} onChange={() => void advanceTaskStage(task.id).catch(showError)} aria-label={`${isTaskChecked ? "Move back one stage" : "Move to the next stage"}: ${task.title}`} /><span>{isTaskChecked ? "✓" : ""}</span></label>
+                          <button className="project-task-title" type="button" aria-haspopup="dialog" onClick={() => setSelectedTaskId(task.id)}>{task.title}</button>
+                          {link && <button
+                            className="project-task-drag-handle"
+                            type="button"
+                            draggable
+                            aria-label={`Drag ${task.title} to another stage; use the stage menu as an alternative`}
+                            title="Drag to another stage"
+                            onDragStart={(event) => beginTaskDrag(event, link)}
+                            onDragEnd={clearDragState}
+                            onPointerDown={(event) => beginTouchDrag(event, link, task.title)}
+                            onPointerMove={continueTouchDrag}
+                            onPointerUp={finishTouchDrag}
+                            onPointerCancel={clearDragState}
+                          ><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="3" r="1" /><circle cx="11" cy="3" r="1" /><circle cx="5" cy="8" r="1" /><circle cx="11" cy="8" r="1" /><circle cx="5" cy="13" r="1" /><circle cx="11" cy="13" r="1" /></svg></button>}
+                        </div>
                         {task.due_date && <small>Due {task.due_date}</small>}
                         {link && <div className="project-task-actions">
                           <label className="sr-only" htmlFor={`move-${link.id}`}>Move {task.title} to another stage</label>
                           <select id={`move-${link.id}`} value={stage.id} onChange={(event) => void moveTask(link, event.target.value).catch(showError)}>
                             {stages.map((target) => <option value={target.id} key={target.id}>{target.name}</option>)}
                           </select>
-                          <button className="text-button" type="button" onClick={() => void removeTask(link).catch(showError)}>Remove</button>
+                          <button className="project-task-remove" type="button" aria-label={`Remove ${task.title} from ${stage.name}`} title="Remove from project" onClick={() => void removeTask(link).catch(showError)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13M8 5.5V3.7h4v1.8m-6.8 0 .7 10.1c.1.7.6 1.2 1.3 1.2h5.6c.7 0 1.2-.5 1.3-1.2l.7-10.1M8.2 8.2v5.8m3.6-5.8v5.8" /></svg></button>
                         </div>}
                       </article>;
                     })}
@@ -186,12 +358,54 @@ export default function ProjectsPage() {
       {projectSheetOpen && <ProjectSheet onClose={() => setProjectSheetOpen(false)} onCreate={(data) => createProject(data).then(() => setProjectSheetOpen(false))} />}
       {taskSheetStage && <ProjectTaskSheet stage={taskSheetStage} tasks={snapshot.tasks} links={snapshot.projectTaskLinks} projectId={selectedProject?.id ?? ""} onClose={() => setTaskSheetStage(null)} onAdd={(data) => placeTask({ ...data, stage: taskSheetStage }).then(() => setTaskSheetStage(null))} />}
       {stageSheetProject && <StageManager project={stageSheetProject} stages={snapshot.projectStages.filter(({ project_id }) => project_id === stageSheetProject.id)} onClose={() => setStageSheetProject(null)} onSave={async (stage, payload) => { await queueMutation({ entityType: "project_stage", recordId: stage.id, expectedRevision: stage.revision, payload }); }} onCreate={async (name) => { await queueMutation({ entityType: "project_stage", recordId: crypto.randomUUID(), expectedRevision: 0, payload: { project_id: stageSheetProject.id, name, sort_order: snapshot.projectStages.length, is_complete: false, is_archived: false } }); }} />}
+      {selectedTask && <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedTaskId(null); }}><section className="sheet-panel project-task-details-dialog" role="dialog" aria-modal="true" aria-labelledby="project-task-details-title"><div className="sheet-heading"><div><span className="eyebrow">{selectedTaskStage?.name ?? "PROJECT TASK"}</span><h2 id="project-task-details-title">{selectedTask.title}</h2></div><button className="icon-button" type="button" onClick={() => setSelectedTaskId(null)} aria-label="Close task details">×</button></div><div className="project-task-details-content"><h3>Details</h3><p>{selectedTask.details?.trim() || "No details added."}</p>{selectedTask.due_date && <p className="project-task-due">Due {selectedTask.due_date}</p>}</div></section></div>}
+      {dragPreview && <div className="project-task-drag-preview" style={dragPreviewStyle} aria-hidden="true"><span className="project-task-drag-preview-check" /><strong>{dragPreview.title}</strong><svg viewBox="0 0 16 16"><circle cx="5" cy="3" r="1" /><circle cx="11" cy="3" r="1" /><circle cx="5" cy="8" r="1" /><circle cx="11" cy="8" r="1" /><circle cx="5" cy="13" r="1" /><circle cx="11" cy="13" r="1" /></svg></div>}
     </div>
   );
 
   function showError(operationError: unknown) {
     setNotice(operationError instanceof Error ? operationError.message : "The project change could not be saved.");
   }
+}
+
+interface ProjectAction {
+  label: string;
+  onSelect(): void;
+}
+
+function ProjectActionsMenu({ actions }: { actions: ProjectAction[] }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const firstActionRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    firstActionRef.current?.focus();
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return <div className="project-actions-menu" ref={rootRef}>
+    <button ref={triggerRef} className="project-actions-trigger" type="button" aria-label="Project actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1.3" /><circle cx="10" cy="10" r="1.3" /><circle cx="16" cy="10" r="1.3" /></svg>
+    </button>
+    {open && <div className="project-actions-menu-panel" role="menu">{actions.map((action, index) => <button ref={index === 0 ? firstActionRef : undefined} type="button" role="menuitem" key={action.label} onClick={() => { setOpen(false); action.onSelect(); }}>{action.label}</button>)}</div>}
+  </div>;
 }
 
 function ProjectSheet({ onClose, onCreate }: { onClose(): void; onCreate(value: { title: string; description: string }): Promise<void> }) {

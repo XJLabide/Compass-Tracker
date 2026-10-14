@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { HealthSheet } from "@/app/health-sheet";
 import { PageHeader } from "@/app/daily-components";
+import { FinanceRowActions } from "@/app/finance-row-actions";
 import { localToday } from "@/lib/daily/repository";
 import { isoToLocalDateTimeParts, localDateTimeToIso } from "@/lib/daily/timezone";
 import { listMutations, type JsonValue, type WorkspaceEntityType } from "@/lib/offline/outbox";
@@ -27,13 +29,13 @@ const financeIncomeCategories = ["Salary", "Freelance", "Interest", "Refund", "G
 const customCategoryOption = "__custom__";
 
 export default function FinancesPage() {
-  const { profile, database, refreshKey, queueMutation, online } = useWorkspace();
+  const { profile, database, refreshKey, queueMutation } = useWorkspace();
   const today = localToday(profile.timezone);
-  const monthStart = `${today.slice(0, 7)}-01`;
-  const monthLabel = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${today}T12:00:00.000Z`));
+  const currentMonth = today.slice(0, 7);
   const [snapshot, setSnapshot] = useState<FinanceSnapshot>(emptyFinanceSnapshot);
+  const [snapshotLoaded, setSnapshotLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<FinanceTab>("spending");
-  const [transactionListOpen, setTransactionListOpen] = useState(false);
+  const [selectedFlowMonth, setSelectedFlowMonth] = useState(currentMonth);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [accountDetailOpen, setAccountDetailOpen] = useState(false);
   const [form, setForm] = useState<FinanceForm>(null);
@@ -42,6 +44,7 @@ export default function FinancesPage() {
   const [accountToClose, setAccountToClose] = useState<FinanceAccount | null>(null);
   const [closeAccountError, setCloseAccountError] = useState("");
   const [closingAccount, setClosingAccount] = useState(false);
+  const [manualValueChooserOpen, setManualValueChooserOpen] = useState(false);
   const [newPositionType, setNewPositionType] = useState<FinancePosition["position_type"]>("asset");
   const [error, setError] = useState("");
   const [offline, setOffline] = useState(false);
@@ -54,6 +57,7 @@ export default function FinancesPage() {
         listMutations(database),
       ]);
       setSnapshot(projectLocalFinanceMutations(loaded, queued));
+      setSnapshotLoaded(true);
       setOffline(isOffline);
       setError("");
     } catch (loadError) {
@@ -67,17 +71,32 @@ export default function FinancesPage() {
   }, [load, refreshKey]);
 
   useEffect(() => {
-    if (window.location.hash !== "#net-worth-history") return;
-    window.requestAnimationFrame(() => {
-      setActiveTab("accounts");
-      setAccountDetailOpen(false);
-      window.requestAnimationFrame(() => document.getElementById("net-worth-history")?.scrollIntoView({ block: "start" }));
-    });
+    if (window.location.hash !== "#accounts") return;
+    const frame = window.requestAnimationFrame(() => setActiveTab("accounts"));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    if (!snapshotLoaded) return;
+    const params = new URLSearchParams(window.location.search);
+    const transactionId = params.get("editTransaction");
+    const addTransaction = params.get("newTransaction") === "1";
+    if (!transactionId && !addTransaction) return;
+    if (transactionId && !snapshot.transactions.some(({ id, active }) => id === transactionId && active)) return;
+    const frame = window.requestAnimationFrame(() => {
+      setActiveTab("spending");
+      setAccountDetailOpen(false);
+      setEditingId(transactionId);
+      setTargetPositionId(null);
+      setForm("transaction");
+      window.history.replaceState(window.history.state, "", "/finances");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [snapshotLoaded, snapshot.transactions]);
 
   const netWorth = useMemo(() => netWorthAt(snapshot, today), [snapshot, today]);
   const composition = useMemo(() => netWorthCompositionAt(snapshot, today), [snapshot, today]);
-  const history = useMemo(() => buildNetWorthHistory(snapshot, today).slice(-24), [snapshot, today]);
+  const history = useMemo(() => buildNetWorthHistory(snapshot, today), [snapshot, today]);
 
   function openForm(next: Exclude<FinanceForm, null>, id: string | null = null, positionId: string | null = null, positionType: FinancePosition["position_type"] = "asset") {
     setError(""); setEditingId(id); setTargetPositionId(positionId); setNewPositionType(positionType); setForm(next);
@@ -341,11 +360,6 @@ export default function FinancesPage() {
     finally { setClosingAccount(false); }
   }
 
-  async function archiveTransaction(transaction: FinanceTransaction) {
-    try { await saveMutation("finance_transaction", transaction.id, transaction.revision, { active: false }); }
-    catch (saveError) { setError(message(saveError, "The transaction could not be voided.")); }
-  }
-
   async function archiveTransfer(transfer: FinanceTransfer) {
     try { await saveMutation("finance_transfer", transfer.id, transfer.revision, { active: false }); }
     catch (saveError) { setError(message(saveError, "The transfer could not be voided.")); }
@@ -365,8 +379,26 @@ export default function FinancesPage() {
   const positions = snapshot.positions.filter(({ active }) => active);
   const investmentPositions = positions.filter(({ position_type }) => position_type === "holding");
   const assetAndDebtPositions = positions.filter(({ position_type }) => position_type !== "holding");
-  const monthFlow = monthlyFinanceFlow(snapshot, monthStart, today);
+  const firstActivityMonth = snapshot.transactions
+    .filter(({ active, local_date }) => active && local_date <= today)
+    .map(({ local_date }) => local_date.slice(0, 7))
+    .sort()[0] ?? currentMonth;
+  const firstNavigableMonth = [firstActivityMonth, shiftFinanceMonth(currentMonth, -11)].sort()[0];
+  const flowMonths = financeMonthsBetween(currentMonth, firstNavigableMonth);
+  const netBalanceMonth = flowMonths.includes(selectedFlowMonth) ? selectedFlowMonth : currentMonth;
+  const netBalanceMonthIndex = flowMonths.indexOf(netBalanceMonth);
+  const previousBalanceMonth = flowMonths[netBalanceMonthIndex + 1] ?? null;
+  const nextBalanceMonth = netBalanceMonthIndex > 0 ? flowMonths[netBalanceMonthIndex - 1] : null;
+  const netBalanceMonthStart = `${netBalanceMonth}-01`;
+  const monthDays = new Date(Date.UTC(Number(netBalanceMonth.slice(0, 4)), Number(netBalanceMonth.slice(5, 7)), 0)).getUTCDate();
+  const netBalanceThroughDate = netBalanceMonth === currentMonth ? today : `${netBalanceMonth}-${String(monthDays).padStart(2, "0")}`;
+  const monthLabel = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${netBalanceMonth}-01T12:00:00.000Z`));
+  const monthFlow = monthlyFinanceFlow(snapshot, netBalanceMonthStart, netBalanceThroughDate);
   const monthlySummary = monthFlow.map((flow) => ({ currency: flow.currency, income: flow.income_minor, spent: flow.expense_minor, net: flow.net_minor }));
+  const balanceTrends = monthlySummary.map(({ currency }) => ({
+    currency,
+    ...netBalanceTrend(snapshot.transactions, currency, netBalanceMonthStart, netBalanceThroughDate),
+  }));
   const activeBudgetCycles = snapshot.budgetCycles.filter(({ period_start, period_end }) => period_start <= today && period_end >= today);
   const upcomingBudgetCycles = snapshot.budgetCycles.filter(({ period_start }) => period_start > today).sort((a, b) => a.period_start.localeCompare(b.period_start));
   const currentBudgetCycleEntries = activeBudgetCycles.map((cycle) => ({
@@ -411,44 +443,60 @@ export default function FinancesPage() {
     return <article className="finance-position-card" key={position.id}>
       <div className="finance-row finance-position-row">
         <div><strong>{position.name}{position.symbol ? ` · ${position.symbol}` : ""}</strong><small>{position.position_type} · {position.currency}{position.quantity ? ` · ${position.quantity} units` : ""}</small></div>
-        <div><strong>{valuation?.value_minor === null || !valuation ? "No valuation" : formatMinorUnits(valuation.value_minor, position.currency)}</strong>{valuation && <small className={`finance-freshness is-${freshness}`}>{valuation.source} · {freshness} · {formatFinanceDate(valuation.as_of, profile.timezone)}{valuation.reason ? ` · ${valuation.reason}` : ""}</small>}</div>
-        <FinanceRowActions actions={[
+        <div className="finance-position-trailing"><div className="finance-position-copy"><strong>{valuation?.value_minor === null || !valuation ? "No valuation" : formatMinorUnits(valuation.value_minor, position.currency)}</strong>{valuation && <small className={`finance-freshness is-${freshness}`}>{valuation.source} · {freshness} · {formatFinanceDate(valuation.as_of, profile.timezone)}{valuation.reason ? ` · ${valuation.reason}` : ""}</small>}</div><FinanceRowActions actions={[
           { label: "Update value", onSelect: () => openForm("valuation", null, position.id) },
           { label: "Edit", onSelect: () => openForm("position", position.id) },
           { label: "Close", onSelect: () => void archivePosition(position), danger: true },
-        ]} />
+        ]} /></div>
       </div>
-      {positionHistory.length > 0 && <details className="finance-history"><summary>Valuation history · {positionHistory.length}</summary><div className="finance-list">{positionHistory.slice(0, 12).map((entry) => <article className="finance-row" key={entry.id}><div><strong>{formatFinanceDate(entry.local_date)}</strong><small>{entry.source} · {formatFinanceDate(entry.as_of, profile.timezone)}</small></div><span>{entry.value_minor === null ? entry.reason ?? "Unavailable" : formatMinorUnits(entry.value_minor, entry.currency)}</span><span className={`finance-freshness is-${resolveFreshness(entry.freshness, entry.as_of)}`}>{resolveFreshness(entry.freshness, entry.as_of)}</span><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("valuation", entry.id, position.id) }]} /></article>)}</div></details>}
+      {positionHistory.length > 0 && <details className="finance-history"><summary>Valuation history · {positionHistory.length}</summary><div className="finance-list">{positionHistory.slice(0, 12).map((entry) => <article className="finance-row finance-row-has-trailing" key={entry.id}><div><strong>{formatFinanceDate(entry.local_date)}</strong><small>{entry.source} · {formatFinanceDate(entry.as_of, profile.timezone)}</small></div><div className="finance-row-trailing"><span className={`finance-freshness is-${resolveFreshness(entry.freshness, entry.as_of)}`}>{resolveFreshness(entry.freshness, entry.as_of)}</span><span>{entry.value_minor === null ? entry.reason ?? "Unavailable" : formatMinorUnits(entry.value_minor, entry.currency)}</span><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("valuation", entry.id, position.id) }]} /></div></article>)}</div></details>}
     </article>;
   }
 
   return <div className="finance-page">
-    <PageHeader title="Finances" subtitle={`${formatFinanceDate(today)} · ${offline ? "Saved on this device" : online ? "Manual values" : "Offline"}`} action={<button className="round-add" type="button" aria-label="Add an expense" onClick={() => openForm("transaction")}>+</button>} />
+    <PageHeader title="Finances" subtitle={offline ? `${formatFinanceDate(today)} · Offline` : formatFinanceDate(today)} action={<button className="round-add" type="button" aria-label="Add an expense" onClick={() => openForm("transaction")}>+</button>} />
     <nav className="finance-tabs" role="tablist" aria-label="Finance sections">
       {([ ["spending", "Spending"], ["portfolio", "Portfolio"], ["accounts", "Accounts"] ] as const).map(([tab, label]) => <button key={tab} id={`finance-tab-${tab}`} className={activeTab === tab ? "finance-tab is-active" : "finance-tab"} type="button" role="tab" aria-controls={`finance-panel-${tab}`} aria-selected={activeTab === tab} onClick={() => { setActiveTab(tab); setAccountDetailOpen(false); }}>{label}</button>)}
     </nav>
     {error && <p className="form-message" role="alert">{error}</p>}
 
     {activeTab === "spending" && <div id="finance-panel-spending" className="finance-tab-content" role="tabpanel" aria-labelledby="finance-tab-spending" tabIndex={0}>
-      {transactionListOpen ? <section className="health-section" aria-labelledby="all-transactions-title">
-        <div className="health-section-heading"><div><button className="text-button" type="button" onClick={() => setTransactionListOpen(false)}>‹ Spending</button><h2 id="all-transactions-title">All transactions</h2></div><button className="text-button" type="button" onClick={() => openForm("transaction")}>Add transaction <span aria-hidden="true">+</span></button></div>
-        {allTransactions.length ? <div className="finance-list">{allTransactions.map((transaction) => <article className="finance-row" key={transaction.id}><div><strong>{transaction.description}</strong><small>{transaction.category} · {formatFinanceDate(transaction.local_date)} · {snapshot.accounts.find(({ id }) => id === transaction.account_id)?.name ?? "Closed account"}</small></div><strong className={transaction.transaction_type === "income" ? "finance-income" : "finance-expense"}>{transaction.transaction_type === "income" ? "+" : "−"}{formatMinorUnits(transaction.amount_minor, transaction.currency)}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("transaction", transaction.id) }, { label: "Void", onSelect: () => void archiveTransaction(transaction), danger: true }]} /></article>)}</div> : <p className="health-muted">No transactions recorded yet.</p>}
-      </section> : <>
-      <section className="health-section finance-snapshot" aria-labelledby="monthly-cashflow-title">
-        <div className="health-section-heading"><h2 id="monthly-cashflow-title">Cash flow</h2></div>
-        {monthlySummary.length ? <div className="finance-flow-list">{monthlySummary.map(({ currency, income, spent, net }) => {
+      <section className="health-section finance-net-balance" aria-labelledby="net-balance-title">
+        <div className="health-section-heading finance-net-balance-heading">
+          <h2 id="net-balance-title">Net Balance</h2>
+          <div className="finance-month-stepper" role="group" aria-label="Net balance month">
+            <button type="button" aria-label="Previous month" disabled={!previousBalanceMonth} onClick={() => previousBalanceMonth && setSelectedFlowMonth(previousBalanceMonth)}>‹</button>
+            <span>{formatMonthLabel(netBalanceMonth)}</span>
+            <button type="button" aria-label="Next month" disabled={!nextBalanceMonth} onClick={() => nextBalanceMonth && setSelectedFlowMonth(nextBalanceMonth)}>›</button>
+          </div>
+        </div>
+        {monthlySummary.length ? <div className="finance-net-balance-list">{monthlySummary.map(({ currency, income, spent, net }) => {
           const incomeMinor = BigInt(income);
           const spentMinor = BigInt(spent);
           const netMinor = BigInt(net);
           const scale = incomeMinor + spentMinor;
           const barWidth = (amount: bigint) => scale > BigInt(0) ? `${Number(amount * BigInt(10000) / scale) / 100}%` : "0%";
-          return <div className="finance-flow-group" key={currency}>
-            <span className="finance-flow-period">{monthLabel} · {currency}</span>
-            <div className="finance-flow-row"><span>Income</span><strong>{formatMinorUnits(income, currency)}</strong><div className="finance-flow-track" role="img" aria-label={`Income ${formatMinorUnits(income, currency)}`}><span className="is-income" style={{ width: barWidth(incomeMinor) }} /></div></div>
-            <div className="finance-flow-row"><span>Spent</span><strong>{formatMinorUnits(spent, currency)}</strong><div className="finance-flow-track" role="img" aria-label={`Spent ${formatMinorUnits(spent, currency)}`}><span className="is-spent" style={{ width: barWidth(spentMinor) }} /></div></div>
-            <div className="finance-flow-net"><span>{netMinor < BigInt(0) ? "Net outflow" : "Net"}</span><strong className={netMinor < BigInt(0) ? "is-negative" : "is-positive"}>{netMinor > BigInt(0) ? "+" : ""}{formatMinorUnits(net, currency)}</strong></div>
+          const trend = balanceTrends.find((entry) => entry.currency === currency);
+          const displayedNet = `${netMinor > BigInt(0) ? "+" : ""}${formatMinorUnits(net, currency)}`;
+          return <div className="finance-net-balance-group" key={currency}>
+            <div className="finance-net-balance-details">
+              <div className="finance-net-balance-total"><strong className={netMinor < BigInt(0) ? "is-negative" : "is-positive"}>{displayedNet}</strong><span>{currency}</span></div>
+              <div className="finance-net-balance-flows">
+                <div className="finance-net-balance-flow" role="img" aria-label={`Income ${formatMinorUnits(income, currency)}`}>
+                  <span className="finance-net-balance-icon is-income" aria-hidden="true">↗</span><strong>{formatMinorUnits(income, currency)}</strong><span className="finance-flow-track"><span className="is-income" style={{ width: barWidth(incomeMinor) }} /></span>
+                </div>
+                <div className="finance-net-balance-flow" role="img" aria-label={`Expenses ${formatMinorUnits(spent, currency)}`}>
+                  <span className="finance-net-balance-icon is-expense" aria-hidden="true">↘</span><strong>{formatMinorUnits(spent, currency)}</strong><span className="finance-flow-track"><span className="is-spent" style={{ width: barWidth(spentMinor) }} /></span>
+                </div>
+              </div>
+            </div>
+            {trend && <svg className="finance-net-balance-chart" viewBox="0 0 276 88" preserveAspectRatio="none" role="img" aria-label={`${monthLabel} cumulative net flow in ${currency}, ending at ${displayedNet}`}>
+              <path className="finance-net-balance-area" d={trend.area} />
+              <path className="finance-net-balance-line" d={trend.line} />
+              <circle cx={trend.lastX} cy={trend.lastY} r="4" />
+            </svg>}
           </div>;
-        })}</div> : <p className="health-muted">No income or spending recorded this month.</p>}
+        })}</div> : <p className="health-muted">No income or spending recorded for {monthLabel}.</p>}
       </section>
 
       <section className="finance-budget-section" aria-label="Budget Tracker">
@@ -456,41 +504,37 @@ export default function FinancesPage() {
         {currentBudgetCycleEntries.length ? <div className="finance-budget-grid">{currentBudgetCycleEntries.map(({ cycle, progress, foreignExpenseCount }) => {
           return <article className="finance-budget finance-cycle" key={cycle.id}>
             <div className="finance-cycle-top"><h2 id={`budget-tracker-title-${cycle.id}`}>Budget Tracker</h2><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("budget-cycle", cycle.id) }]} /></div>
-            <div className="finance-cycle-context"><div className="finance-cycle-date"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.75" y="4.5" width="14.5" height="12.75" rx="1.75" /><path d="M6 2.75v3.5M14 2.75v3.5M3 8h14" /></svg><span>{`${cycle.currency} · ${formatBudgetPeriod(cycle.period_start, cycle.period_end)} · ${budgetCycleDuration(cycle)}-day cycle`}</span></div><div className="finance-cycle-cap"><span>Overall cap</span><strong>{formatMinorUnits(cycle.total_amount_minor, cycle.currency)}</strong></div></div>
+            <div className="finance-cycle-context"><div className="finance-cycle-date"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.75" y="4.5" width="14.5" height="12.75" rx="1.75" /><path d="M6 2.75v3.5M14 2.75v3.5M3 8h14" /></svg><div className="finance-cycle-period"><span>{`${cycle.currency} · ${formatFinanceShortDate(cycle.period_start)} – ${formatFinanceShortDate(cycle.period_end)}`}</span><small>{budgetCycleDuration(cycle)}-day cycle</small></div></div><div className="finance-cycle-cap"><span>Overall cap</span><strong>{formatMinorUnits(cycle.total_amount_minor, cycle.currency)}</strong></div></div>
             <div className="finance-category-heading"><h3>Category limits</h3><span>{progress.category_limits.length} {progress.category_limits.length === 1 ? "category" : "categories"}</span></div>
             {progress.category_limits.length > 0 ? <div className="finance-category-list">{progress.category_limits.map((limit) => {
               const limitMinor = BigInt(limit.amount_minor);
               const spentMinor = BigInt(limit.spent_minor);
-              const remainingMinor = BigInt(limit.remaining_minor);
               const limitPercent = limitMinor > BigInt(0) ? Math.round(Number(spentMinor * BigInt(10000) / limitMinor) / 100) : 0;
               const progressWidth = Math.min(100, limitPercent);
-              const balance = remainingMinor < BigInt(0)
-                ? `Over by ${formatMinorUnits((BigInt(0) - remainingMinor).toString(), cycle.currency)}`
-                : `${formatMinorUnits(limit.remaining_minor, cycle.currency)} left of ${formatMinorUnits(limit.amount_minor, cycle.currency)}`;
-              return <div className="finance-category-limit" key={limit.id}><div><strong>{limit.category}</strong><span>{balance}</span><span className="finance-category-percent">{limitPercent}%</span></div><div className="home-progress-track" role="img" aria-label={`${limit.category}: ${limitPercent}% of category limit used`}><span style={{ width: `${progressWidth}%` }} /></div></div>;
+              const spentVsLimit = `${formatMinorUnits(limit.spent_minor, cycle.currency)} / ${formatMinorUnits(limit.amount_minor, cycle.currency)}`;
+              return <div className="finance-category-limit" key={limit.id}><div><strong>{limit.category}</strong><span>{spentVsLimit}</span><span className="finance-category-percent">{limitPercent}%</span></div><div className="home-progress-track" role="img" aria-label={`${limit.category}: ${formatMinorUnits(limit.spent_minor, cycle.currency)} spent of ${formatMinorUnits(limit.amount_minor, cycle.currency)} limit (${limitPercent}%)`}><span style={{ width: `${progressWidth}%` }} /></div></div>;
             })}</div> : <p className="health-muted">No category limits yet. Edit the budget to add some.</p>}
             {foreignExpenseCount > 0 && <p className="finance-currency-warning">{foreignExpenseCount} expense{foreignExpenseCount === 1 ? "" : "s"} in other currencies aren’t included in this period.</p>}
           </article>;
-        })}</div> : upcomingBudgetCycles.length > 0 ? <div className="finance-list">{upcomingBudgetCycles.map((cycle) => <article className="finance-row" key={cycle.id}><div><strong>Starts {formatFinanceDate(cycle.period_start)} · {budgetCycleDuration(cycle)} days</strong><small>{cycle.currency} · through {formatFinanceDate(cycle.period_end)}</small></div><strong>{formatMinorUnits(cycle.total_amount_minor, cycle.currency)}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("budget-cycle", cycle.id) }]} /></article>)}</div> : <div className="health-empty finance-empty-state"><div><strong>No active budget period.</strong><p>Choose a start date and duration. Ten days is ready as a preset.</p></div><button className="button button-secondary" type="button" onClick={() => openForm("budget-cycle")}>Create budget</button></div>}
-        {previousBudgetCycles.length > 0 && <details className="finance-history"><summary>Past budget periods · {previousBudgetCycles.length}</summary><div className="finance-list">{previousBudgetCycles.slice(0, 12).map((cycle) => { const progress = budgetCycleProgress(snapshot, cycle, snapshot.budgetCategoryLimits, cycle.period_end); return <article className="finance-row" key={cycle.id}><div><strong>{formatBudgetPeriod(cycle.period_start, cycle.period_end)}</strong><small>{cycle.currency} · {formatMinorUnits(cycle.total_amount_minor, cycle.currency)} planned</small></div><span>Spent {formatMinorUnits(progress.spent_minor, cycle.currency)}</span><strong>{BigInt(progress.remaining_minor) < BigInt(0) ? `Over ${formatMinorUnits(progress.over_minor, cycle.currency)}` : `Unspent ${formatMinorUnits(progress.remaining_minor, cycle.currency)}`}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("budget-cycle", cycle.id) }]} /></article>; })}</div></details>}
+        })}</div> : upcomingBudgetCycles.length > 0 ? <div className="finance-list">{upcomingBudgetCycles.map((cycle) => <article className="finance-row finance-row-has-trailing" key={cycle.id}><div><strong>Starts {formatFinanceDate(cycle.period_start)} · {budgetCycleDuration(cycle)} days</strong><small>{cycle.currency} · through {formatFinanceDate(cycle.period_end)}</small></div><div className="finance-row-trailing"><strong>{formatMinorUnits(cycle.total_amount_minor, cycle.currency)}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("budget-cycle", cycle.id) }]} /></div></article>)}</div> : <div className="health-empty finance-empty-state"><div><strong>No active budget period.</strong><p>Choose a start date and duration. Ten days is ready as a preset.</p></div><button className="button button-secondary" type="button" onClick={() => openForm("budget-cycle")}>Create budget</button></div>}
+        {previousBudgetCycles.length > 0 && <details className="finance-history"><summary>Past budget periods · {previousBudgetCycles.length}</summary><div className="finance-list">{previousBudgetCycles.slice(0, 12).map((cycle) => { const progress = budgetCycleProgress(snapshot, cycle, snapshot.budgetCategoryLimits, cycle.period_end); return <article className="finance-row finance-row-has-trailing" key={cycle.id}><div><strong>{formatBudgetPeriod(cycle.period_start, cycle.period_end)}</strong><small>{cycle.currency} · {formatMinorUnits(cycle.total_amount_minor, cycle.currency)} planned</small></div><div className="finance-row-trailing"><span>Spent {formatMinorUnits(progress.spent_minor, cycle.currency)}</span><strong>{BigInt(progress.remaining_minor) < BigInt(0) ? `Over ${formatMinorUnits(progress.over_minor, cycle.currency)}` : `Unspent ${formatMinorUnits(progress.remaining_minor, cycle.currency)}`}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("budget-cycle", cycle.id) }]} /></div></article>; })}</div></details>}
       </section>
 
       <section className="health-section" aria-labelledby="transactions-title">
-        <div className="health-section-heading"><div><span className="eyebrow">LATEST ACTIVITY</span><h2 id="transactions-title">Transactions</h2></div><div className="health-actions"><button className="text-button" type="button" onClick={() => openForm("transaction")}>Add transaction <span aria-hidden="true">+</span></button><button className="text-button" type="button" onClick={() => openForm("transfer")}>Transfer</button></div></div>
-        {recentTransactions.length ? <div className="finance-list">{recentTransactions.slice(0, 2).map((transaction) => <article className="finance-row" key={transaction.id}><div><strong>{transaction.description}</strong><small>{transaction.category} · {formatFinanceDate(transaction.local_date)}</small></div><strong className={transaction.transaction_type === "income" ? "finance-income" : "finance-expense"}>{transaction.transaction_type === "income" ? "+" : "−"}{formatMinorUnits(transaction.amount_minor, transaction.currency)}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("transaction", transaction.id) }]} /></article>)}</div> : <p className="health-muted">No transactions recorded yet.</p>}
-        <button className="text-button" type="button" onClick={() => setTransactionListOpen(true)}>View all transactions <span aria-hidden="true">›</span></button>
-        {recentTransfers.length > 0 && <details className="finance-history"><summary>Transfers · {recentTransfers.length}</summary><div className="finance-list">{recentTransfers.map((transfer) => <article className="finance-row" key={transfer.id}><div><strong>{snapshot.accounts.find(({ id }) => id === transfer.from_account_id)?.name ?? "Account"} → {snapshot.accounts.find(({ id }) => id === transfer.to_account_id)?.name ?? "Account"}</strong><small>{formatFinanceDate(transfer.local_date)} · {transfer.source ?? "Same-currency transfer"}</small></div><span>{formatMinorUnits(transfer.from_amount_minor, transfer.from_currency)} → {formatMinorUnits(transfer.to_amount_minor, transfer.to_currency)}</span><button className="text-button" type="button" onClick={() => void archiveTransfer(transfer)}>Void</button></article>)}</div></details>}
+        <div className="health-section-heading"><div><span className="eyebrow">LATEST ACTIVITY</span><h2 id="transactions-title">Transactions</h2></div><div className="health-actions"><button className="text-button finance-quiet-action" type="button" aria-label="Add transaction" onClick={() => openForm("transaction")}>Add</button><button className="text-button finance-quiet-action" type="button" onClick={() => openForm("transfer")}>Transfer</button></div></div>
+        {recentTransactions.length ? <div className="finance-list">{recentTransactions.slice(0, 2).map((transaction) => <article className="finance-row finance-row-has-trailing" key={transaction.id}><div><strong>{transaction.description}</strong><small>{transaction.category} · {formatFinanceDate(transaction.local_date)}</small></div><div className="finance-row-trailing"><strong className={transaction.transaction_type === "income" ? "finance-income" : "finance-expense"}>{transaction.transaction_type === "income" ? "+" : "−"}{formatMinorUnits(transaction.amount_minor, transaction.currency)}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("transaction", transaction.id) }]} /></div></article>)}</div> : <p className="health-muted">No transactions recorded yet.</p>}
+        <Link className="text-button" href="/finances/transactions">View all transactions <span aria-hidden="true">›</span></Link>
+        {recentTransfers.length > 0 && <details className="finance-history"><summary>Transfers · {recentTransfers.length}</summary><div className="finance-list">{recentTransfers.map((transfer) => <article className="finance-row finance-row-has-trailing" key={transfer.id}><div><strong>{snapshot.accounts.find(({ id }) => id === transfer.from_account_id)?.name ?? "Account"} → {snapshot.accounts.find(({ id }) => id === transfer.to_account_id)?.name ?? "Account"}</strong><small>{formatFinanceDate(transfer.local_date)} · {transfer.source ?? "Same-currency transfer"}</small></div><div className="finance-row-trailing"><span>{formatMinorUnits(transfer.from_amount_minor, transfer.from_currency)} → {formatMinorUnits(transfer.to_amount_minor, transfer.to_currency)}</span><button className="text-button" type="button" onClick={() => void archiveTransfer(transfer)}>Void</button></div></article>)}</div></details>}
       </section>
 
       <section className="health-section" aria-labelledby="recurring-title">
-        <div className="health-section-heading"><div><span className="eyebrow">SCHEDULES · NO AUTO-POSTING</span><h2 id="recurring-title">Recurring charges</h2></div><button className="text-button" type="button" onClick={() => openForm("recurring")}>Add schedule <span aria-hidden="true">+</span></button></div>
-        {currentRecurring.length ? <div className="finance-list">{currentRecurring.map((charge) => <article className="finance-row" key={charge.id}><div><strong>{charge.name}</strong><small>{charge.category} · {charge.cadence} · next {formatFinanceDate(charge.next_due_on)}</small></div><strong>{formatMinorUnits(charge.amount_minor, charge.currency)}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("recurring", charge.id) }, { label: "Stop", onSelect: () => void archiveRecurring(charge), danger: true }]} /></article>)}</div> : <p className="health-muted">No recurring charges scheduled.</p>}
+        <div className="health-section-heading"><div><span className="eyebrow">SCHEDULES · NO AUTO-POSTING</span><h2 id="recurring-title">Recurring charges</h2></div><button className="text-button finance-quiet-action" type="button" aria-label="Add recurring charge" onClick={() => openForm("recurring")}>Add</button></div>
+        {currentRecurring.length ? <div className="finance-list">{currentRecurring.map((charge) => <article className="finance-row finance-row-has-trailing" key={charge.id}><div><strong>{charge.name}</strong><small>{charge.category} · {charge.cadence} · next {formatFinanceDate(charge.next_due_on)}</small></div><div className="finance-row-trailing"><strong>{formatMinorUnits(charge.amount_minor, charge.currency)}</strong><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("recurring", charge.id) }, { label: "Stop", onSelect: () => void archiveRecurring(charge), danger: true }]} /></div></article>)}</div> : <p className="health-muted">No recurring charges scheduled.</p>}
       </section>
-      </>}
     </div>}
 
     {activeTab === "portfolio" && <div id="finance-panel-portfolio" className="finance-tab-content" role="tabpanel" aria-labelledby="finance-tab-portfolio" tabIndex={0}>
-      <section className="health-section" aria-labelledby="portfolio-title"><div className="health-section-heading"><div><span className="eyebrow">INVESTMENTS</span><h2 id="portfolio-title">Portfolio</h2></div>{investmentPositions.length > 0 && <button className="text-button" type="button" onClick={() => openForm("position", null, null, "holding")}>Add holding <span aria-hidden="true">+</span></button>}</div>
+      <section className="health-section" aria-labelledby="portfolio-title"><div className="health-section-heading"><div><span className="eyebrow">INVESTMENTS</span><h2 id="portfolio-title">Portfolio</h2></div>{investmentPositions.length > 0 && <button className="text-button finance-quiet-action" type="button" aria-label="Add holding" onClick={() => openForm("position", null, null, "holding")}>Add</button>}</div>
         {portfolioTotals.size > 0 && <div className="finance-networth-grid">{[...portfolioTotals.entries()].map(([currency, value]) => <article className="finance-networth-item" key={currency}><span>Portfolio value · {currency}</span><strong>{formatMinorUnits(value, currency)}</strong></article>)}</div>}
         {investmentPositions.length ? <div className="finance-list">{investmentPositions.map(renderPositionCard)}</div> : <div className="health-empty finance-empty-state"><div><strong>No holdings yet.</strong><p>Record a quantity and manual valuation to track your investments.</p></div><button className="button button-secondary" type="button" onClick={() => openForm("position", null, null, "holding")}>Add holding</button></div>}
       </section>
@@ -500,7 +544,7 @@ export default function FinancesPage() {
     {activeTab === "accounts" && <div id="finance-panel-accounts" className="finance-tab-content" role="tabpanel" aria-labelledby="finance-tab-accounts" tabIndex={0}>
       {accountDetailOpen && selectedAccount ? <section className="health-section" aria-labelledby="account-detail-title"><div className="health-section-heading"><div><button className="text-button" type="button" onClick={() => setAccountDetailOpen(false)}>‹ Accounts</button><h2 id="account-detail-title">{selectedAccount.name}</h2></div><span className="health-count">{selectedAccount.account_type} · {selectedAccount.currency}</span></div><div className="finance-account-balance"><span>Current balance</span><strong>{formatMinorUnits(financeAccountBalanceAt(selectedAccount, snapshot.transactions, today, snapshot.transfers), selectedAccount.currency)}</strong></div><div className="health-actions"><button className="button button-secondary" type="button" onClick={() => openForm("transaction")}>Add transaction</button><button className="button button-secondary" type="button" onClick={() => openForm("transfer")}>Transfer</button></div><h3>Activity</h3><div className="finance-list">{[...snapshot.transactions.filter(({ active, account_id }) => active && account_id === selectedAccount.id).map((transaction) => ({ id: transaction.id, date: transaction.local_date, title: transaction.description, value: transaction.transaction_type === "income" ? transaction.amount_minor : `-${transaction.amount_minor}`, currency: transaction.currency })), ...snapshot.transfers.filter(({ active, from_account_id, to_account_id }) => active && (from_account_id === selectedAccount.id || to_account_id === selectedAccount.id)).map((transfer) => ({ id: transfer.id, date: transfer.local_date, title: `Transfer ${transfer.from_account_id === selectedAccount.id ? "to" : "from"} ${snapshot.accounts.find(({ id }) => id === (transfer.from_account_id === selectedAccount.id ? transfer.to_account_id : transfer.from_account_id))?.name ?? "account"}`, value: transfer.from_account_id === selectedAccount.id ? `-${transfer.from_amount_minor}` : transfer.to_amount_minor, currency: transfer.from_account_id === selectedAccount.id ? transfer.from_currency : transfer.to_currency }))].sort((a, b) => b.date.localeCompare(a.date)).map((activity) => <article className="finance-row" key={activity.id}><div><strong>{activity.title}</strong><small>{formatFinanceDate(activity.date)}</small></div><strong>{formatMinorUnits(activity.value, activity.currency)}</strong></article>)}</div></section> : <>
         <section className="health-section finance-snapshot" aria-labelledby="net-worth-title">
-          <div className="health-section-heading"><div><span className="eyebrow">NET WORTH</span><h2 id="net-worth-title">Balance sheet</h2></div><a className="text-button" href="#net-worth-history">History <span aria-hidden="true">›</span></a></div>
+          <div className="health-section-heading"><div><span className="eyebrow">NET WORTH</span><h2 id="net-worth-title">Balance sheet</h2></div><Link className="text-button" href="/finances/history">History <span aria-hidden="true">›</span></Link></div>
           {netWorth.length ? <div className="finance-networth-grid">{netWorth.map(({ currency, amount_minor }) => {
             const breakdown = composition.find((item) => item.currency === currency);
             return <article className="finance-networth-card" key={currency}>
@@ -509,13 +553,27 @@ export default function FinancesPage() {
             </article>;
           })}</div> : <div className="health-empty finance-empty-state"><div><strong>Add an account to see net worth.</strong><p>Totals stay grouped by currency.</p></div><button className="button button-secondary" type="button" onClick={() => openForm("account")}>Add account</button></div>}
         </section>
-        <section className="health-section" aria-labelledby="accounts-title"><div className="health-section-heading"><div><span className="eyebrow">CASH, BANK & CREDIT</span><h2 id="accounts-title">Accounts</h2></div><button className="text-button" type="button" onClick={() => openForm("account")}>Add account <span aria-hidden="true">+</span></button></div>
+        <section className="health-section" aria-labelledby="accounts-title"><div className="health-section-heading"><div><span className="eyebrow">CASH, BANK & CREDIT</span><h2 id="accounts-title">Accounts</h2></div><button className="text-button finance-quiet-action" type="button" aria-label="Add account" onClick={() => openForm("account")}>Add</button></div>
           {accounts.length ? <div className="finance-list">{accounts.map((account) => <article className="finance-row finance-account-row" key={account.id}><button type="button" className="finance-account-open" onClick={() => { setSelectedAccountId(account.id); setAccountDetailOpen(true); }}><span><strong>{account.name}</strong><small>{accountTypeLabel(account.account_type)} · {account.currency}</small></span><b>{formatMinorUnits(financeAccountBalanceAt(account, snapshot.transactions, today, snapshot.transfers), account.currency)}</b></button><FinanceRowActions actions={[{ label: "Edit", onSelect: () => openForm("account", account.id) }, { label: "Close", onSelect: () => { setCloseAccountError(""); setAccountToClose(account); }, danger: true }]} /></article>)}</div> : <div className="health-empty finance-empty-state"><div><strong>No accounts yet.</strong><p>Add cash, bank, credit, or brokerage cash accounts.</p></div><button className="button button-secondary" type="button" onClick={() => openForm("account")}>Add account</button></div>}
         </section>
-        <section className="health-section" aria-labelledby="assets-debts-title"><div className="health-section-heading"><div><span className="eyebrow">MANUAL VALUES</span><h2 id="assets-debts-title">Assets & debts</h2></div><div className="health-actions"><button className="text-button" type="button" onClick={() => openForm("position", null, null, "asset")}>Add asset</button><button className="text-button" type="button" onClick={() => openForm("position", null, null, "debt")}>Add debt</button></div></div>
+        <section className="health-section" aria-labelledby="assets-debts-title"><div className="health-section-heading"><div><span className="eyebrow">MANUAL VALUES</span><h2 id="assets-debts-title">Assets & debts</h2></div><button className="text-button finance-quiet-action" type="button" aria-label="Add asset or debt" onClick={() => setManualValueChooserOpen(true)}>Add</button></div>
           {assetAndDebtPositions.length ? <div className="finance-list">{assetAndDebtPositions.map(renderPositionCard)}</div> : <p className="health-muted">Track items such as a home, car, or loan with dated manual values.</p>}
         </section>
-        <section id="net-worth-history" className="health-section" aria-labelledby="worth-history-title"><div className="health-section-heading"><div><span className="eyebrow">RECONSTRUCTED FROM DATED RECORDS</span><h2 id="worth-history-title">Net-worth history</h2></div><span className="health-count">{history.length} dated points</span></div>{history.length ? <div className="finance-list">{history.slice().reverse().map((point) => <article className="finance-row" key={point.date}><strong>{formatFinanceDate(point.date)}</strong><span>{point.totals.map(({ currency, amount_minor }) => `${formatMinorUnits(amount_minor, currency)}`).join(" · ") || "No valued positions"}</span></article>)}</div> : <p className="health-muted">Net-worth history appears after you add dated account activity or valuations.</p>}</section>
+        <section id="net-worth-history" className="health-section finance-history-section" aria-labelledby="worth-history-title">
+          <div className="health-section-heading">
+            <h2 id="worth-history-title">Net-worth history</h2>
+            <span className="health-count">{history.length} {history.length === 1 ? "point" : "points"}</span>
+          </div>
+          {history.length ? <ol className="finance-history-points">
+            {history.slice(-1).map((point) => <li className="finance-history-point" key={point.date}>
+              <time dateTime={point.date}>{formatFinanceDate(point.date)}</time>
+              {point.totals.length
+                ? <div className="finance-history-values">{point.totals.map(({ currency, amount_minor }) => <strong key={currency}>{formatMinorUnits(amount_minor, currency)}</strong>)}</div>
+                : <span className="health-muted">No valued positions</span>}
+            </li>)}
+          </ol> : <p className="health-muted">History appears after you add dated account activity or valuations.</p>}
+          {history.length > 0 && <Link className="text-button finance-history-all-link" href="/finances/history">View all history <span aria-hidden="true">›</span></Link>}
+        </section>
       </>}
     </div>}
 
@@ -531,6 +589,10 @@ export default function FinancesPage() {
     {accountToClose && <HealthSheet title="Close account?" eyebrow="ACCOUNT" error={closeAccountError} onClose={() => { if (closingAccount) return; setAccountToClose(null); setCloseAccountError(""); }}>
       <p className="finance-confirmation-copy"><strong>{accountToClose.name}</strong> will be removed from active accounts and unavailable for new transactions. Its existing transaction history will remain in Finance.</p>
       <div className="finance-confirmation-actions"><button className="button button-secondary" type="button" disabled={closingAccount} onClick={() => setAccountToClose(null)}>Keep account</button><button className="button button-danger" type="button" disabled={closingAccount} onClick={() => void confirmAccountClose()}>{closingAccount ? "Closing…" : "Close account"}</button></div>
+    </HealthSheet>}
+    {manualValueChooserOpen && <HealthSheet title="Add manual value" eyebrow="ACCOUNTS" error="" onClose={() => setManualValueChooserOpen(false)}>
+      <p className="finance-confirmation-copy">Choose what you want to add.</p>
+      <div className="finance-manual-value-options"><button className="button button-secondary" type="button" onClick={() => { setManualValueChooserOpen(false); openForm("position", null, null, "asset"); }}>Asset</button><button className="button button-secondary" type="button" onClick={() => { setManualValueChooserOpen(false); openForm("position", null, null, "debt"); }}>Debt</button></div>
     </HealthSheet>}
   </div>;
 }
@@ -654,7 +716,20 @@ function BudgetCycleForm({ cycle, cycleLimits, today, currencies, error, previou
     {end && <p className="health-muted">This period runs {start} through {end} ({duration} days). It closes automatically; unused funds stay in history.</p>}
     <label className="field-label" htmlFor="cycle-total">Overall spending cap ({currency})<input id="cycle-total" name="cycle-total" inputMode="decimal" value={total} onChange={(event) => setTotal(event.target.value)} placeholder="0.00" required /></label>
     <div className="health-section-heading finance-subheading"><h3>Optional category limits</h3><button className="text-button" type="button" onClick={() => setLimits((current) => [...current, { category: "", amount: "" }])}>Add category <span aria-hidden="true">+</span></button></div>
-    {limits.map((limit, index) => <div className="finance-limit-editor" key={limit.id ?? index}><label className="field-label" htmlFor={`cycle-limit-category-${index}`}>Category<input id={`cycle-limit-category-${index}`} name="limit-category" list="finance-category-options" value={limit.category} readOnly={Boolean(limit.id)} onChange={(event) => setLimits((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, category: event.target.value } : row))} placeholder="Food, transport…" /></label><label className="field-label" htmlFor={`cycle-limit-amount-${index}`}>Limit ({currency})<input id={`cycle-limit-amount-${index}`} name="limit-amount" inputMode="decimal" value={limit.amount} onChange={(event) => setLimits((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, amount: event.target.value } : row))} placeholder="0.00" /></label>{limit.id ? <span className="finance-limit-locked" title="Existing category names are fixed to preserve the budget record">Saved</span> : <button className="icon-button" type="button" aria-label={`Remove ${limit.category || "category"} limit`} onClick={() => setLimits((current) => current.filter((_, rowIndex) => rowIndex !== index))}>×</button>}<input type="hidden" name="limit-id" value={limit.id ?? ""} /><input type="hidden" name="limit-revision" value={limit.revision ?? 0} /></div>)}
+    {limits.map((limit, index) => {
+      const persistedLimit = limit.id ? cycleLimits.find(({ id }) => id === limit.id) : null;
+      const unsaved = !persistedLimit || limit.amount !== minorUnitsInput(persistedLimit.amount_minor, currency);
+      return <div className={`finance-limit-editor${limit.id ? "" : " has-remove"}`} key={limit.id ?? index}>
+        <label className="field-label" htmlFor={`cycle-limit-category-${index}`}>
+          <span className="finance-limit-label">Category{unsaved && <span className="finance-unsaved-indicator" role="img" aria-label="Unsaved changes" title="Unsaved changes" />}</span>
+          <input id={`cycle-limit-category-${index}`} name="limit-category" list="finance-category-options" value={limit.category} readOnly={Boolean(limit.id)} onChange={(event) => setLimits((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, category: event.target.value } : row))} placeholder="Food, transport…" />
+        </label>
+        <label className="field-label" htmlFor={`cycle-limit-amount-${index}`}>Limit ({currency})<input id={`cycle-limit-amount-${index}`} name="limit-amount" inputMode="decimal" value={limit.amount} onChange={(event) => setLimits((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, amount: event.target.value } : row))} placeholder="0.00" /></label>
+        {!limit.id && <button className="finance-limit-remove" type="button" aria-label={`Remove ${limit.category || "category"} limit`} onClick={() => setLimits((current) => current.filter((_, rowIndex) => rowIndex !== index))}>×</button>}
+        <input type="hidden" name="limit-id" value={limit.id ?? ""} />
+        <input type="hidden" name="limit-revision" value={limit.revision ?? 0} />
+      </div>;
+    })}
     <datalist id="finance-category-options">{financeCategories.map((category) => <option key={category} value={category} />)}</datalist>
     <button className="button button-primary" type="submit">{cycle ? "Save budget" : "Start budget period"}</button>
   </FinanceSheet>;
@@ -758,52 +833,34 @@ function FinanceSheet({ title, error, onClose, onSubmit, children }: { title: st
   return <HealthSheet eyebrow="FINANCE" title={title} error={error} onClose={onClose}><form className="sheet-form" onSubmit={onSubmit}>{children}</form></HealthSheet>;
 }
 
-interface FinanceAction {
-  label: string;
-  onSelect(): void;
-  danger?: boolean;
-}
-
-function FinanceRowActions({ actions }: { actions: FinanceAction[] }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const firstOptionRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    firstOptionRef.current?.focus();
-    function closeOutside(event: PointerEvent) {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    }
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
-  if (actions.length === 1) {
-    const action = actions[0];
-    return <button className="icon-button finance-row-icon" type="button" aria-label={action.label} title={action.label} onClick={action.onSelect}>
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.8 3.2 4 4M3.5 16.5l3.7-.8L16 6.9a1.8 1.8 0 0 0-2.9-2.1l-8.7 8.8-.9 2.9Z" /></svg>
-    </button>;
+function netBalanceTrend(transactions: FinanceTransaction[], currency: string, periodStart: string, throughDate: string) {
+  const changesByDate = new Map<string, bigint>();
+  for (const transaction of transactions) {
+    if (!transaction.active || transaction.currency !== currency || transaction.local_date < periodStart || transaction.local_date > throughDate) continue;
+    const amount = BigInt(transaction.amount_minor) * (transaction.transaction_type === "income" ? BigInt(1) : BigInt(-1));
+    changesByDate.set(transaction.local_date, (changesByDate.get(transaction.local_date) ?? BigInt(0)) + amount);
   }
 
-  return <div className="finance-action-menu" ref={rootRef}>
-    <button ref={triggerRef} className="icon-button finance-row-icon" type="button" aria-label="More actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1.25" /><circle cx="10" cy="10" r="1.25" /><circle cx="16" cy="10" r="1.25" /></svg>
-    </button>
-    {open && <div className="finance-action-menu-panel" role="menu">{actions.map((action, index) => <button ref={index === 0 ? firstOptionRef : undefined} className={action.danger ? "finance-action-option is-danger" : "finance-action-option"} type="button" role="menuitem" key={action.label} onClick={() => { setOpen(false); action.onSelect(); }}>{action.label}</button>)}</div>}
-  </div>;
+  const dayCount = Number(throughDate.slice(8, 10));
+  let running = BigInt(0);
+  const values: bigint[] = [];
+  for (let day = 1; day <= dayCount; day += 1) {
+    const date = `${periodStart.slice(0, 7)}-${String(day).padStart(2, "0")}`;
+    running += changesByDate.get(date) ?? BigInt(0);
+    values.push(running);
+  }
+  const minimum = values.reduce((value, entry) => entry < value ? entry : value, BigInt(0));
+  const maximum = values.reduce((value, entry) => entry > value ? entry : value, BigInt(0));
+  const range = maximum - minimum;
+  const coordinates = values.map((value, index) => ({
+    x: values.length <= 1 ? 138 : 8 + (index / (values.length - 1)) * 260,
+    y: range === BigInt(0) ? 44 : 8 + Number((maximum - value) * BigInt(10000) / range) / 10000 * 68,
+  }));
+  const line = coordinates.map(({ x, y }, index) => `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+  const first = coordinates[0] ?? { x: 8, y: 44 };
+  const last = coordinates[coordinates.length - 1] ?? first;
+  const zeroY = range === BigInt(0) ? 78 : 8 + Number(maximum * BigInt(10000) / range) / 10000 * 68;
+  return { line, area: `${line} L ${last.x.toFixed(1)} ${zeroY.toFixed(1)} L ${first.x.toFixed(1)} ${zeroY.toFixed(1)} Z`, lastX: last.x, lastY: last.y };
 }
 
 function text(data: FormData, key: string): string { return String(data.get(key) ?? "").trim(); }
@@ -820,6 +877,32 @@ function formatFinanceDate(value: string, timezone?: string): string {
   const [year, month, day] = datePart.split("-").map(Number);
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
     .format(new Date(Date.UTC(year, month - 1, day, 12)));
+}
+function formatFinanceShortDate(value: string): string {
+  const datePart = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return value;
+  const [year, month, day] = datePart.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, day, 12)));
+}
+function formatMonthLabel(value: string): string {
+  if (!/^\d{4}-\d{2}$/.test(value)) return value;
+  const [year, month] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, 1, 12)));
+}
+function financeMonthsBetween(current: string, earliest: string): string[] {
+  const months: string[] = [];
+  let month = current;
+  while (month >= earliest && months.length < 1200) {
+    months.push(month);
+    month = shiftFinanceMonth(month, -1);
+  }
+  return months;
+}
+function shiftFinanceMonth(value: string, amount: number): string {
+  const [year, month] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1 + amount, 1)).toISOString().slice(0, 7);
 }
 function formatFinanceTimestamp(value: string, timezone?: string): string {
   const date = new Date(value);

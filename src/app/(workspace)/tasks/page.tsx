@@ -25,7 +25,6 @@ export default function TasksPage() {
 
   const reload = useCallback(async () => {
     if (!database) return;
-    setLoading(true);
     try {
       const { snapshot: remoteOrCached } = await loadDailySnapshot(createClient(), database, today);
       const queued = await listMutations(database);

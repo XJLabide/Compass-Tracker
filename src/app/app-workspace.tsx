@@ -290,7 +290,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#main-content">Skip to content</a>
       <aside className="desktop-sidebar" aria-label="Primary navigation">
         <Link className="sidebar-brand" href="/today">
-          <img src="/compass.svg" width="34" height="34" alt="" />
+          <img src="/logo.png" width="51" height="34" alt="" />
           <span>Compass</span>
         </Link>
         <div className="sidebar-section-label">YOUR DAY</div>
@@ -322,7 +322,7 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
 
       <div className="workspace-main">
         <header className="mobile-app-bar">
-          <Link className="mobile-brand" href="/today"><img src="/compass.svg" width="25" height="25" alt="" />Compass</Link>
+          <Link className="mobile-brand" href="/today"><img src="/logo.png" width="38" height="25" alt="" />Compass</Link>
           <button className="mobile-sync" type="button" onClick={() => setSyncOpen(true)} aria-label={`Sync status: ${statusLabel}`}>
             <span className={online && !conflictCount && !failedCount ? "status-dot" : "status-dot status-dot-muted"} aria-hidden="true" />
             {conflictCount > 0 ? conflictCount : pendingCount + failedCount || ""}

@@ -3,6 +3,8 @@ const SHELL_ASSETS = [
   "/manifest.webmanifest",
   "/offline.html",
   "/compass.svg",
+  "/logo.png",
+  "/icon-192.png",
   "/icons/today.svg",
   "/icons/today-active.svg",
   "/icons/home.svg",

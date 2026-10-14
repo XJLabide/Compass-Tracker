@@ -31,7 +31,6 @@ export default function GoalsPage() {
 
   const reload = useCallback(async () => {
     if (!database) return;
-    setLoading(true);
     try {
       const loaded = await loadGoalsSnapshot(createClient(), database);
       const mutations = await listMutations(database);

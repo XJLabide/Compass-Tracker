@@ -31,7 +31,6 @@ export default function RoutinesPage() {
 
   const reload = useCallback(async () => {
     if (!database) return;
-    setLoading(true);
     try {
       const { data, error } = await createClient().from("routines").select("*").order("sort_order").order("created_at");
       if (error) throw new Error(error.message);

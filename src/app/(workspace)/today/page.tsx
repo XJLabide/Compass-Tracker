@@ -39,7 +39,6 @@ export default function TodayPage() {
 
   const reload = useCallback(async () => {
     if (!database || !viewDate) return;
-    setLoading(true);
     setError("");
     try {
       const { snapshot: remoteOrCached, offline: usingCache } = await loadDailySnapshot(
@@ -51,7 +50,6 @@ export default function TodayPage() {
       setSnapshot(projectLocalDailyMutations(remoteOrCached, localQueue, viewDate));
       setOffline(usingCache);
     } catch (loadError) {
-      setSnapshot(emptySnapshot);
       setError(loadError instanceof Error ? loadError.message : "Today could not be loaded.");
     } finally {
       setLoading(false);
