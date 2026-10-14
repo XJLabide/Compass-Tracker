@@ -42,6 +42,40 @@ export interface FinanceBudget {
   revision: number;
 }
 
+export interface FinanceBudgetCycle {
+  id: string;
+  currency: FinanceCurrency;
+  period_start: string;
+  period_end: string;
+  total_amount_minor: MinorUnits;
+  revision: number;
+}
+
+export interface FinanceBudgetCategoryLimit {
+  id: string;
+  cycle_id: string;
+  category: string;
+  amount_minor: MinorUnits;
+  revision: number;
+}
+
+export interface FinanceTransfer {
+  id: string;
+  from_account_id: string;
+  to_account_id: string;
+  from_amount_minor: MinorUnits;
+  from_currency: FinanceCurrency;
+  to_amount_minor: MinorUnits;
+  to_currency: FinanceCurrency;
+  local_date: string;
+  rate: string | null;
+  source: string | null;
+  as_of: string | null;
+  notes: string | null;
+  active: boolean;
+  revision: number;
+}
+
 export interface FinanceRecurringCharge {
   id: string;
   account_id: string | null;
@@ -115,20 +149,26 @@ export interface FinanceSnapshot {
   accounts: FinanceAccount[];
   transactions: FinanceTransaction[];
   budgets: FinanceBudget[];
+  budgetCycles: FinanceBudgetCycle[];
+  budgetCategoryLimits: FinanceBudgetCategoryLimit[];
   recurringCharges: FinanceRecurringCharge[];
   positions: FinancePosition[];
   valuations: FinancePositionValuation[];
   fxRates: FinanceFxRate[];
   conversions: FinanceConversion[];
+  transfers: FinanceTransfer[];
 }
 
 export const emptyFinanceSnapshot: FinanceSnapshot = {
   accounts: [],
   transactions: [],
   budgets: [],
+  budgetCycles: [],
+  budgetCategoryLimits: [],
   recurringCharges: [],
   positions: [],
   valuations: [],
   fxRates: [],
   conversions: [],
+  transfers: [],
 };

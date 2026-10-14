@@ -11,10 +11,48 @@ export interface NetWorthPoint {
   totals: FinanceCurrencyTotal[];
 }
 
+export interface NetWorthComposition {
+  currency: string;
+  assets_minor: string;
+  debts_minor: string;
+}
+
+export function netWorthCompositionAt(snapshot: FinanceSnapshot, date: string): NetWorthComposition[] {
+  const totals = new Map<string, { assets: bigint; debts: bigint }>();
+  const add = (currency: string, amount: bigint, isDebt: boolean) => {
+    const total = totals.get(currency) ?? { assets: BigInt(0), debts: BigInt(0) };
+    if (isDebt) total.debts += amount;
+    else total.assets += amount;
+    totals.set(currency, total);
+  };
+
+  for (const account of snapshot.accounts) {
+    if (account.opened_on > date || (account.closed_on && account.closed_on <= date) || (!account.active && !account.closed_on)) continue;
+    const balance = BigInt(financeAccountBalanceAt(account, snapshot.transactions, date, snapshot.transfers));
+    const debtAccount = account.account_type === "credit";
+    add(account.currency, balance < BigInt(0) ? -balance : balance, debtAccount !== (balance < BigInt(0)));
+  }
+
+  for (const position of snapshot.positions) {
+    if (position.opened_on > date || (position.closed_on && position.closed_on <= date) || (!position.active && !position.closed_on)) continue;
+    const latest = snapshot.valuations
+      .filter(({ position_id, local_date }) => position_id === position.id && local_date <= date)
+      .sort((left, right) => right.local_date.localeCompare(left.local_date) || right.as_of.localeCompare(left.as_of))[0];
+    if (!latest || latest.value_minor === null) continue;
+    const value = BigInt(latest.value_minor);
+    add(position.currency, value, position.position_type === "debt");
+  }
+
+  return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([currency, total]) => ({
+    currency, assets_minor: total.assets.toString(), debts_minor: total.debts.toString(),
+  }));
+}
+
 export function financeAccountBalanceAt(
   account: FinanceSnapshot["accounts"][number],
   transactions: FinanceSnapshot["transactions"],
   date: string,
+  transfers: FinanceSnapshot["transfers"] = [],
 ): string {
   let balance = BigInt(account.opening_balance_minor);
   for (const transaction of transactions) {
@@ -24,6 +62,12 @@ export function financeAccountBalanceAt(
     balance += transaction.transaction_type === "income"
       ? (isCredit ? -amount : amount)
       : (isCredit ? amount : -amount);
+  }
+  for (const transfer of transfers) {
+    if (!transfer.active || transfer.local_date > date) continue;
+    const isCredit = account.account_type === "credit";
+    if (transfer.from_account_id === account.id) balance += isCredit ? BigInt(transfer.from_amount_minor) : -BigInt(transfer.from_amount_minor);
+    if (transfer.to_account_id === account.id) balance += isCredit ? -BigInt(transfer.to_amount_minor) : BigInt(transfer.to_amount_minor);
   }
   return balance.toString();
 }
@@ -65,7 +109,7 @@ export function netWorthAt(snapshot: FinanceSnapshot, date: string): FinanceCurr
 
   for (const account of snapshot.accounts) {
     if (!activeAccounts.has(account.id)) continue;
-    const balance = BigInt(financeAccountBalanceAt(account, snapshot.transactions, date));
+    const balance = BigInt(financeAccountBalanceAt(account, snapshot.transactions, date, snapshot.transfers));
     add(account.currency, account.account_type === "credit" ? -balance : balance);
   }
 
@@ -98,6 +142,7 @@ export function buildNetWorthHistory(snapshot: FinanceSnapshot, throughDate: str
     if (position.closed_on && position.closed_on <= throughDate) dates.add(position.closed_on);
   }
   for (const transaction of snapshot.transactions) if (transaction.active && transaction.local_date <= throughDate) dates.add(transaction.local_date);
+  for (const transfer of snapshot.transfers) if (transfer.active && transfer.local_date <= throughDate) dates.add(transfer.local_date);
   for (const valuation of snapshot.valuations) if (valuation.local_date <= throughDate) dates.add(valuation.local_date);
   return [...dates].sort().map((date) => ({ date, totals: netWorthAt(snapshot, date) }));
 }

@@ -11,9 +11,10 @@ describe("finance ledger summaries", () => {
       { id: "food-2", account_id: "bank", transaction_type: "expense" as const, amount_minor: "2500", currency: "PHP", local_date: "2026-10-09", category: "food", description: "Dinner", notes: null, active: true, revision: 1 },
       { id: "old", account_id: "bank", transaction_type: "expense" as const, amount_minor: "5000", currency: "PHP", local_date: "2026-09-30", category: "Food", description: "Last month", notes: null, active: true, revision: 1 },
     ],
+    transfers: [{ id: "transfer", from_account_id: "bank", to_account_id: "savings", from_amount_minor: "50000", from_currency: "PHP", to_amount_minor: "50000", to_currency: "PHP", local_date: "2026-10-04", rate: null, source: null, as_of: null, notes: null, active: true, revision: 1 }],
   };
 
-  it("keeps monthly cash flow in exact minor units", () => {
+  it("keeps monthly cash flow in exact minor units and excludes account transfers", () => {
     expect(monthlyFinanceFlow(snapshot, "2026-10-01", "2026-10-31")).toEqual([
       { currency: "PHP", income_minor: "250000", expense_minor: "4099", net_minor: "245901" },
     ]);

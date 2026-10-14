@@ -51,7 +51,10 @@ export type WorkspaceEntityType =
   | "finance_position"
   | "finance_valuation"
   | "finance_fx_rate"
-  | "finance_conversion";
+  | "finance_conversion"
+  | "finance_budget_cycle"
+  | "finance_budget_category_limit"
+  | "finance_transfer";
 
 export type DailyEntityType = WorkspaceEntityType;
 

@@ -1,7 +1,8 @@
 import type { QueuedMutation } from "@/lib/offline/outbox";
 import type {
-  FinanceAccount, FinanceFxRate, FinancePosition,
+  FinanceAccount, FinanceBudgetCategoryLimit, FinanceBudgetCycle, FinanceFxRate, FinancePosition,
   FinancePositionValuation, FinanceRecurringCharge, FinanceSnapshot, FinanceTransaction,
+  FinanceTransfer,
 } from "./types";
 
 const visibleStatuses = new Set(["pending", "sending", "failed", "conflict"]);
@@ -9,8 +10,9 @@ const visibleStatuses = new Set(["pending", "sending", "failed", "conflict"]);
 export function projectLocalFinanceMutations(source: FinanceSnapshot, mutations: QueuedMutation[]): FinanceSnapshot {
   const snapshot: FinanceSnapshot = {
     accounts: [...source.accounts], transactions: [...source.transactions], budgets: [...source.budgets],
+    budgetCycles: [...source.budgetCycles], budgetCategoryLimits: [...source.budgetCategoryLimits],
     recurringCharges: [...source.recurringCharges], positions: [...source.positions], valuations: [...source.valuations],
-    fxRates: [...source.fxRates], conversions: [...source.conversions],
+    fxRates: [...source.fxRates], conversions: [...source.conversions], transfers: [...source.transfers],
   };
   for (const mutation of mutations) {
     if (!visibleStatuses.has(mutation.status) || !isRecord(mutation.payload) || !isFinanceEntity(mutation.entityType)) continue;
@@ -59,6 +61,21 @@ export function projectLocalFinanceMutations(source: FinanceSnapshot, mutations:
       from_currency: string(payload.from_currency, "USD"), to_amount_minor: string(payload.to_amount_minor, "0"), to_currency: string(payload.to_currency, "EUR"),
       rate: string(payload.rate, "1"), source: string(payload.source, "manual"), as_of: string(payload.as_of, ""), revision,
     });
+    if (mutation.entityType === "finance_budget_cycle") snapshot.budgetCycles = upsert(snapshot.budgetCycles, {
+      id: mutation.recordId, currency: string(payload.currency, "USD"), period_start: string(payload.period_start, ""),
+      period_end: string(payload.period_end, ""), total_amount_minor: string(payload.total_amount_minor, "0"), revision,
+    } satisfies FinanceBudgetCycle);
+    if (mutation.entityType === "finance_budget_category_limit") snapshot.budgetCategoryLimits = upsert(snapshot.budgetCategoryLimits, {
+      id: mutation.recordId, cycle_id: string(payload.cycle_id), category: string(payload.category),
+      amount_minor: string(payload.amount_minor, "0"), revision,
+    } satisfies FinanceBudgetCategoryLimit);
+    if (mutation.entityType === "finance_transfer") snapshot.transfers = upsert(snapshot.transfers, {
+      id: mutation.recordId, from_account_id: string(payload.from_account_id), to_account_id: string(payload.to_account_id),
+      from_amount_minor: string(payload.from_amount_minor, "0"), from_currency: string(payload.from_currency, "USD"),
+      to_amount_minor: string(payload.to_amount_minor, "0"), to_currency: string(payload.to_currency, "USD"),
+      local_date: string(payload.local_date, ""), rate: nullableString(payload.rate), source: nullableString(payload.source),
+      as_of: nullableString(payload.as_of), notes: nullableString(payload.notes), active: bool(payload.active, true), revision,
+    } satisfies FinanceTransfer);
   }
   return snapshot;
 }
@@ -71,21 +88,26 @@ function existingFinanceRecord(
   const rows = entityType === "finance_account" ? snapshot.accounts
     : entityType === "finance_transaction" ? snapshot.transactions
       : entityType === "finance_budget" ? snapshot.budgets
+        : entityType === "finance_budget_cycle" ? snapshot.budgetCycles
+          : entityType === "finance_budget_category_limit" ? snapshot.budgetCategoryLimits
         : entityType === "finance_recurring_charge" ? snapshot.recurringCharges
           : entityType === "finance_position" ? snapshot.positions
             : entityType === "finance_valuation" ? snapshot.valuations
               : entityType === "finance_fx_rate" ? snapshot.fxRates
-                : entityType === "finance_conversion" ? snapshot.conversions
+              : entityType === "finance_conversion" ? snapshot.conversions
+                : entityType === "finance_transfer" ? snapshot.transfers
                   : [];
   return (rows.find((row) => row.id === id) as unknown as Record<string, unknown> | undefined) ?? {};
 }
 
 function isFinanceEntity(entityType: QueuedMutation["entityType"]): entityType is
   | "finance_account" | "finance_transaction" | "finance_budget" | "finance_recurring_charge"
-  | "finance_position" | "finance_valuation" | "finance_fx_rate" | "finance_conversion" {
+  | "finance_position" | "finance_valuation" | "finance_fx_rate" | "finance_conversion"
+  | "finance_budget_cycle" | "finance_budget_category_limit" | "finance_transfer" {
   return entityType === "finance_account" || entityType === "finance_transaction" || entityType === "finance_budget"
     || entityType === "finance_recurring_charge" || entityType === "finance_position" || entityType === "finance_valuation"
-    || entityType === "finance_fx_rate" || entityType === "finance_conversion";
+    || entityType === "finance_fx_rate" || entityType === "finance_conversion" || entityType === "finance_budget_cycle"
+    || entityType === "finance_budget_category_limit" || entityType === "finance_transfer";
 }
 
 function upsert<T extends { id: string }>(rows: T[], value: T): T[] {

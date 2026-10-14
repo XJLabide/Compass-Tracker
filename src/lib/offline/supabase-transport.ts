@@ -59,7 +59,15 @@ export function createSupabaseMutationTransport(
                       p_expected_revision: mutation.expectedRevision,
                       p_payload: mutation.payload,
                     })
-                  : isFinanceMutation(mutation.entityType)
+                : isFinanceFlowMutation(mutation.entityType)
+                  ? await supabase.rpc("apply_finance_flow_mutation", {
+                      p_mutation_id: mutation.id,
+                      p_entity_type: mutation.entityType,
+                      p_entity_id: mutation.recordId,
+                      p_expected_revision: mutation.expectedRevision,
+                      p_payload: mutation.payload,
+                    })
+                : isFinanceMutation(mutation.entityType)
                     ? await supabase.rpc("apply_finance_mutation", {
                         p_mutation_id: mutation.id,
                         p_entity_type: mutation.entityType,
@@ -158,6 +166,13 @@ function isFinanceMutation(entityType: QueuedMutation["entityType"]): entityType
     || entityType === "finance_valuation"
     || entityType === "finance_fx_rate"
     || entityType === "finance_conversion";
+}
+
+function isFinanceFlowMutation(entityType: QueuedMutation["entityType"]): entityType is
+  | "finance_budget_cycle" | "finance_budget_category_limit" | "finance_transfer" {
+  return entityType === "finance_budget_cycle"
+    || entityType === "finance_budget_category_limit"
+    || entityType === "finance_transfer";
 }
 
 async function applyDayEnd(supabase: SupabaseClient, mutation: QueuedMutation) {

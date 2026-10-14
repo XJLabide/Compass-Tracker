@@ -26,6 +26,42 @@ describe("local finance projection", () => {
     expect(result.conversions[0]).toMatchObject({ from_amount_minor: "100", to_amount_minor: "5600", fx_rate_id: "rate", source: "manual" });
   });
 
+  it("projects queued budget-cycle and account-transfer records offline", () => {
+    const result = projectLocalFinanceMutations(emptyFinanceSnapshot, [
+      mutation("cycle", "finance_budget_cycle", { currency: "PHP", period_start: "2026-10-14", period_end: "2026-10-23", total_amount_minor: "50000" }),
+      mutation("limit", "finance_budget_category_limit", { cycle_id: "cycle", category: "Food", amount_minor: "20000" }),
+      mutation("transfer", "finance_transfer", {
+        from_account_id: "checking", to_account_id: "savings", from_amount_minor: "1000", from_currency: "PHP",
+        to_amount_minor: "1000", to_currency: "PHP", local_date: "2026-10-15", rate: null, source: null, as_of: null,
+        notes: null, active: true,
+      }),
+    ]);
+
+    expect(result.budgetCycles[0]).toMatchObject({ currency: "PHP", period_end: "2026-10-23", total_amount_minor: "50000" });
+    expect(result.budgetCategoryLimits[0]).toMatchObject({ cycle_id: "cycle", category: "Food", amount_minor: "20000" });
+    expect(result.transfers[0]).toMatchObject({ from_account_id: "checking", to_account_id: "savings", from_amount_minor: "1000", to_amount_minor: "1000" });
+  });
+
+  it("projects custom budget periods, their category caps, and queued transfers", () => {
+    const result = projectLocalFinanceMutations(emptyFinanceSnapshot, [
+      mutation("cycle", "finance_budget_cycle", {
+        currency: "PHP", period_start: "2026-10-14", period_end: "2026-10-23", total_amount_minor: "50000",
+      }),
+      mutation("limit", "finance_budget_category_limit", {
+        cycle_id: "cycle", category: "Food", amount_minor: "20000",
+      }),
+      mutation("transfer", "finance_transfer", {
+        from_account_id: "checking", to_account_id: "savings", from_amount_minor: "1000", from_currency: "PHP",
+        to_amount_minor: "1000", to_currency: "PHP", local_date: "2026-10-15", rate: null, source: null, as_of: null,
+        notes: null, active: true,
+      }),
+    ]);
+
+    expect(result.budgetCycles[0]).toMatchObject({ period_start: "2026-10-14", period_end: "2026-10-23", total_amount_minor: "50000" });
+    expect(result.budgetCategoryLimits[0]).toMatchObject({ cycle_id: "cycle", category: "Food", amount_minor: "20000" });
+    expect(result.transfers[0]).toMatchObject({ from_account_id: "checking", to_account_id: "savings", from_amount_minor: "1000", to_amount_minor: "1000" });
+  });
+
   it("preserves existing finance fields when an offline archive only changes status", () => {
     const source = {
       ...emptyFinanceSnapshot,

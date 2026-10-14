@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyFinanceSnapshot } from "./types";
-import { buildNetWorthHistory, createValuationAdapter, netWorthAt, resolveFreshness } from "./valuation";
+import { buildNetWorthHistory, createValuationAdapter, financeAccountBalanceAt, netWorthAt, netWorthCompositionAt, resolveFreshness } from "./valuation";
 
 describe("finance valuation", () => {
   it("reconstructs dated net worth from account transactions and position valuations", () => {
@@ -38,6 +38,43 @@ describe("finance valuation", () => {
     const now = Date.parse("2026-10-13T00:00:00Z");
     expect(resolveFreshness("fresh", "2026-10-11T00:00:00Z", now)).toBe("stale");
     expect(resolveFreshness("unavailable", "2026-10-13T00:00:00Z", now)).toBe("unavailable");
+  });
+
+  it("summarizes assets and debts without combining currencies", () => {
+    const snapshot = {
+      ...emptyFinanceSnapshot,
+      accounts: [
+        { id: "bank", name: "Bank", account_type: "checking" as const, currency: "PHP", opening_balance_minor: "120000", opened_on: "2026-01-01", closed_on: null, active: true, revision: 1 },
+        { id: "card", name: "Card", account_type: "credit" as const, currency: "PHP", opening_balance_minor: "15000", opened_on: "2026-01-01", closed_on: null, active: true, revision: 1 },
+      ],
+      positions: [{ id: "home", position_type: "asset" as const, account_id: null, name: "Home", symbol: null, quantity: null, currency: "USD", opened_on: "2026-01-01", closed_on: null, active: true, revision: 1 }],
+      valuations: [{ id: "home-value", position_id: "home", local_date: "2026-01-02", as_of: "2026-01-02T00:00:00Z", value_minor: "400000", unit_price_minor: null, currency: "USD", source: "manual", freshness: "fresh" as const, reason: null, notes: null, revision: 1 }],
+    };
+
+    expect(netWorthCompositionAt(snapshot, "2026-01-03")).toEqual([
+      { currency: "PHP", assets_minor: "120000", debts_minor: "15000" },
+      { currency: "USD", assets_minor: "400000", debts_minor: "0" },
+    ]);
+  });
+
+  it("applies internal transfers to both account balances without changing net worth", () => {
+    const snapshot = {
+      ...emptyFinanceSnapshot,
+      accounts: [
+        { id: "checking", name: "Checking", account_type: "checking" as const, currency: "PHP", opening_balance_minor: "100000", opened_on: "2026-01-01", closed_on: null, active: true, revision: 1 },
+        { id: "savings", name: "Savings", account_type: "savings" as const, currency: "PHP", opening_balance_minor: "0", opened_on: "2026-01-01", closed_on: null, active: true, revision: 1 },
+        { id: "card", name: "Card", account_type: "credit" as const, currency: "PHP", opening_balance_minor: "30000", opened_on: "2026-01-01", closed_on: null, active: true, revision: 1 },
+      ],
+      transfers: [
+        { id: "savings-move", from_account_id: "checking", to_account_id: "savings", from_amount_minor: "25000", from_currency: "PHP", to_amount_minor: "25000", to_currency: "PHP", local_date: "2026-01-02", rate: null, source: null, as_of: null, notes: null, active: true, revision: 1 },
+        { id: "card-payment", from_account_id: "checking", to_account_id: "card", from_amount_minor: "10000", from_currency: "PHP", to_amount_minor: "10000", to_currency: "PHP", local_date: "2026-01-03", rate: null, source: null, as_of: null, notes: null, active: true, revision: 1 },
+      ],
+    };
+
+    expect(financeAccountBalanceAt(snapshot.accounts[0], snapshot.transactions, "2026-01-04", snapshot.transfers)).toBe("65000");
+    expect(financeAccountBalanceAt(snapshot.accounts[1], snapshot.transactions, "2026-01-04", snapshot.transfers)).toBe("25000");
+    expect(financeAccountBalanceAt(snapshot.accounts[2], snapshot.transactions, "2026-01-04", snapshot.transfers)).toBe("20000");
+    expect(netWorthAt(snapshot, "2026-01-04")).toEqual([{ currency: "PHP", amount_minor: "70000" }]);
   });
 
   it("exposes manual fallback when no live quote or FX provider is configured", async () => {

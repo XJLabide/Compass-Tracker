@@ -233,7 +233,9 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
   const [syncOpen, setSyncOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const { profile, online, syncing, pendingCount, failedCount, conflictCount } = useWorkspace();
-  const activeMore = ["/tasks", "/routines", "/history", "/goals", "/fitness", "/nutrition", "/finances", "/settings", "/more"].some((path) => pathname.startsWith(path));
+  const morePaths = ["/tasks", "/routines", "/history", "/goals", "/fitness", "/nutrition", "/settings", "/sync-lab", "/more"];
+  const activeMore = morePaths.some((path) => pathname.startsWith(path));
+  const activeMobileMore = pathname.startsWith("/projects") || activeMore;
 
   const statusLabel = !online
     ? "Offline"
@@ -254,14 +256,21 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
     { label: "Projects", href: "/projects", icon: "/icons/projects.svg", activeIcon: "/icons/projects-active.svg", active: pathname.startsWith("/projects") },
     { label: "More", href: "/more", icon: "/icons/more.svg", activeIcon: "/icons/more-active.svg", active: activeMore },
   ];
+  const mobileNavigation = [
+    navigation[0],
+    navigation[1],
+    navigation[2],
+    { label: "Finance", href: "/finances", icon: "/icons/finance.svg", activeIcon: "/icons/finance.svg", active: pathname.startsWith("/finances") },
+    navigation[4],
+  ];
   const moreSections = [
     {
       title: "YOUR SPACES",
       items: [
+        { label: "Projects", href: "/projects", icon: "/icons/projects.svg" },
         { label: "Goals", href: "/goals", icon: "/icons/goals.svg" },
         { label: "Fitness", href: "/fitness", icon: "/icons/fitness.svg" },
         { label: "Nutrition", href: "/nutrition", icon: "/icons/nutrition.svg" },
-        { label: "Finances", href: "/finances", icon: "/icons/finance.svg" },
         { label: "Tasks", href: "/tasks", icon: "/icons/tasks.svg" },
         { label: "Routines", href: "/routines", icon: "/icons/routines.svg" },
       ],
@@ -323,19 +332,15 @@ function WorkspaceFrame({ children }: { children: ReactNode }) {
       </div>
 
       <nav className="mobile-tab-bar" aria-label="Primary navigation">
-        {navigation.map((item) => (
-          item.label === "More" ? (
-            <button className={item.active || moreOpen ? "mobile-tab is-active" : "mobile-tab"} type="button" aria-haspopup="dialog" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} key={item.label}>
-              <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
-              <span>{item.label}</span>
-            </button>
-          ) : (
-            <Link className={item.active ? "mobile-tab is-active" : "mobile-tab"} href={item.href} aria-current={item.active ? "page" : undefined} key={item.label}>
-              <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
-              <span>{item.label}</span>
-            </Link>
-          )
-        ))}
+        {mobileNavigation.map((item) => item.label === "More" ? (
+          <button className={item.active || activeMobileMore || moreOpen ? "mobile-tab is-active" : "mobile-tab"} type="button" aria-haspopup="dialog" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)} key={item.label}>
+            <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
+            <span>{item.label}</span>
+          </button>
+        ) : <Link className={item.active ? "mobile-tab is-active" : "mobile-tab"} href={item.href} aria-current={item.active ? "page" : undefined} key={item.label}>
+          <img src={item.active ? item.activeIcon ?? item.icon : item.icon} alt="" />
+          <span>{item.label}</span>
+        </Link>)}
       </nav>
 
       {moreOpen && <HealthSheet eyebrow="NAVIGATION" title="More places" error="" onClose={() => setMoreOpen(false)}>
